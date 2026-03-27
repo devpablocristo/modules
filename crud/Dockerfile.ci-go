@@ -1,0 +1,11 @@
+# Tests del módulo github.com/devpablocristo/modules/crud/go.
+# Build: context = padre de `modules`.
+FROM golang:1.26-bookworm
+WORKDIR /repo/modules/crud/go
+
+COPY modules/crud/go/go.mod ./
+COPY modules/crud/go/ ./
+
+RUN go test ./...
+
+CMD ["go", "version"]

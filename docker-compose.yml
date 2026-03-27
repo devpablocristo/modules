@@ -1,0 +1,19 @@
+# Verificación del módulo CRUD sin Node/Go en el host.
+# Contexto de build: directorio padre (el que contiene `core/` y `modules/`).
+#
+# Desde pymes/ (hermano de modules/):
+#   docker compose -f ../modules/docker-compose.yml build crud-ts-check crud-go-check
+#
+# Desde modules/:
+#   docker compose build crud-ts-check crud-go-check
+
+services:
+  crud-ts-check:
+    build:
+      context: ..
+      dockerfile: modules/crud/Dockerfile.ci-ts
+
+  crud-go-check:
+    build:
+      context: ..
+      dockerfile: modules/crud/Dockerfile.ci-go
