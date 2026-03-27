@@ -247,6 +247,8 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
     <div className="m-kanban">
       <div className="page-header crud-page-shell__header">
         <div className="crud-page-shell__header-main">
+          <h1 className="crud-page-shell__title">{title}</h1>
+          {subtitle ? <p className="text-secondary">{subtitle}</p> : null}
           <p className="text-secondary" aria-live="polite">
             {loading ? "Cargando…" : statsLine(totalVisible, items.length)}
           </p>
