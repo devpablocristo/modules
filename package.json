@@ -1,0 +1,9 @@
+{
+  "name": "@devpablocristo/modules-repo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "version:check": "./scripts/validate-module-versions.sh",
+    "version:list": "./scripts/list-module-versions.sh"
+  }
+}

@@ -1,0 +1,17 @@
+# typecheck + tests del paquete @devpablocristo/modules-crud-ui.
+# Build: context = padre que contiene `core/` y `modules/`.
+FROM node:22-bookworm-slim
+WORKDIR /repo/modules/crud/ui/ts
+
+COPY modules/crud/ui/ts/package.json ./
+COPY modules/crud/ui/ts/package-lock.json ./
+COPY core/browser/ts /repo/core/browser/ts
+
+RUN npm install --no-audit --no-fund
+RUN ln -s /repo/modules/crud/ui/ts/node_modules /repo/core/browser/ts/node_modules
+
+COPY modules/crud/ui/ts/ ./
+
+RUN npm run typecheck && npm test
+
+CMD ["node", "-e", "console.log('modules-crud-ui OK')"]
