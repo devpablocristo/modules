@@ -6,6 +6,8 @@ Paquetes listos para integrar **encima de [`core`](../core)**, sin lógica de ne
 
 ```
 modules/
+  calendar/
+    board/ts        → npm @devpablocristo/modules-calendar-board
   crud/
     ui/ts           → npm @devpablocristo/modules-crud-ui
     paths/go        → module github.com/devpablocristo/modules/crud/paths/go
@@ -19,6 +21,7 @@ modules/
 
 ## Responsabilidades
 
+- `calendar`: calendario reusable basado en FullCalendar.
 - `crud`: shell CRUD y segmentos HTTP compartidos.
 - `kanban`: tablero por estados y drag and drop.
 - `ui`: primitivas de interfaz genéricas que no pertenecen a CRUD ni a Kanban.
@@ -35,6 +38,7 @@ modules/
 
 La unidad de versionado es cada implementación concreta:
 
+- `calendar/board/ts`
 - `crud/ui/ts`
 - `crud/paths/go`
 - `kanban/board/ts`
