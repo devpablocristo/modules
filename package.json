@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:all": "./scripts/test-all.sh",
+    "release:audit": "./scripts/check-remote-tags.sh",
     "version:check": "./scripts/validate-module-versions.sh",
     "version:list": "./scripts/list-module-versions.sh"
   }

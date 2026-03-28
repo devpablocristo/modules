@@ -50,8 +50,20 @@ Cada una tiene su propio archivo `VERSION`.
 npm run version:check
 ```
 
+- La suite transversal del repo se corre con:
+
+```bash
+npm run test:all
+```
+
 - El listado de versiones y tags esperados se obtiene con:
 
 ```bash
 npm run version:list
+```
+
+- La auditoría de tags remotos publicados se corre con:
+
+```bash
+npm run release:audit
 ```

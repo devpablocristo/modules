@@ -1,0 +1,45 @@
+name: modules-ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout core repo
+        uses: actions/checkout@v4
+        with:
+          repository: devpablocristo/core
+          ref: main
+          path: core-repo
+
+      - name: Link core repo for local file dependencies
+        run: |
+          expected_core_path="$(cd "$GITHUB_WORKSPACE/.." && pwd)/core"
+          mkdir -p "$(dirname "$expected_core_path")"
+          rm -rf "$expected_core_path"
+          ln -s "$GITHUB_WORKSPACE/core-repo" "$expected_core_path"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run version and module tests
+        run: bash ./scripts/test-all.sh

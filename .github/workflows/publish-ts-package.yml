@@ -1,0 +1,92 @@
+name: modules-publish-ts-package
+
+on:
+  push:
+    tags:
+      - "crud/ui/ts/v*"
+      - "kanban/board/ts/v*"
+      - "ui/data-display/ts/v*"
+      - "ui/filters/ts/v*"
+      - "ui/forms/ts/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout core repo
+        uses: actions/checkout@v4
+        with:
+          repository: devpablocristo/core
+          ref: main
+          path: core-repo
+
+      - name: Link core repo for local file dependencies
+        run: |
+          expected_core_path="$(cd "$GITHUB_WORKSPACE/.." && pwd)/core"
+          mkdir -p "$(dirname "$expected_core_path")"
+          rm -rf "$expected_core_path"
+          ln -s "$GITHUB_WORKSPACE/core-repo" "$expected_core_path"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve tagged module
+        id: tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          module="${tag%/v*}"
+          version="${tag##*/v}"
+          echo "module=${module}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag matches VERSION
+        run: |
+          module="${{ steps.tag.outputs.module }}"
+          version="${{ steps.tag.outputs.version }}"
+          test -f "${module}/VERSION"
+          actual="$(tr -d '[:space:]' < "${module}/VERSION")"
+          if [[ "${actual}" != "${version}" ]]; then
+            echo "tag/version mismatch: ${module} VERSION=${actual} tag=${version}" >&2
+            exit 1
+          fi
+
+      - name: Test source module
+        run: |
+          module="${{ steps.tag.outputs.module }}"
+          cd "${module}"
+          npm install --no-audit --no-fund
+          npm run typecheck
+          npm test
+
+      - name: Prepare release package
+        run: |
+          module="${{ steps.tag.outputs.module }}"
+          outdir="$(mktemp -d)"
+          python3 ./scripts/prepare-ts-package-release.py "${module}" "${outdir}"
+          echo "PACKAGE_DIR=${outdir}" >> "$GITHUB_ENV"
+
+      - name: Publish package
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo "missing NPM_TOKEN secret" >&2
+            exit 1
+          fi
+          cd "${PACKAGE_DIR}"
+          npm publish --access public
