@@ -35,6 +35,12 @@ modules/
 - El chequeo con Docker vive en [`docker-compose.yml`](./docker-compose.yml).
 - La política de versionado vive en [`docs/VERSIONING.md`](./docs/VERSIONING.md).
 
+## Tooling y CI
+
+- El tooling TS del repo queda fijado en `20.17.0` vía `.nvmrc`.
+- Cuando un paquete tiene `package-lock.json`, la CI y los scripts usan `npm ci`; si todavía no tiene lock, cae a `npm install`.
+- `Dependabot` semanal cubre `github-actions` y todos los paquetes npm versionados del repo.
+
 ## Versionado
 
 `modules` es un solo repo, pero no tiene una sola versión global.

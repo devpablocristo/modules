@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "20.17.0"
           registry-url: "https://registry.npmjs.org"
 
       - name: Setup Python
@@ -60,7 +60,11 @@ jobs:
         run: |
           module="${{ steps.tag.outputs.module }}"
           cd "${module}"
-          npm install --no-audit --no-fund
+          if [[ -f package-lock.json ]]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
           npm run typecheck
           npm test
 

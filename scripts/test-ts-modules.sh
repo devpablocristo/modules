@@ -18,5 +18,14 @@ fi
 for module in "${modules[@]}"; do
   rel="${module#${ROOT_DIR}/}"
   echo "==> testing ${rel}"
-  (cd "${module}" && npm install --no-audit --no-fund && npm run typecheck && npm test)
+  (
+    cd "${module}" && \
+    if [[ -f package-lock.json ]]; then
+      npm ci --no-audit --no-fund
+    else
+      npm install --no-audit --no-fund
+    fi && \
+    npm run typecheck && \
+    npm test
+  )
 done
