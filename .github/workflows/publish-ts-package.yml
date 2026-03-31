@@ -3,8 +3,10 @@ name: modules-publish-ts-package
 on:
   push:
     tags:
+      - "calendar/board/ts/v*"
       - "crud/ui/ts/v*"
       - "kanban/board/ts/v*"
+      - "sidebar/ts/v*"
       - "ui/data-display/ts/v*"
       - "ui/filters/ts/v*"
       - "ui/forms/ts/v*"

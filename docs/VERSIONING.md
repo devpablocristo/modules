@@ -4,9 +4,11 @@
 
 La unidad de versionado es cada implementación concreta:
 
+- `calendar/board/ts`
 - `crud/ui/ts`
 - `crud/paths/go`
 - `kanban/board/ts`
+- `sidebar/ts`
 - `ui/data-display/ts`
 - `ui/filters/ts`
 - `ui/forms/ts`
@@ -16,6 +18,12 @@ La unidad de versionado es cada implementación concreta:
 Cada implementación tiene su propio archivo `VERSION` en la raíz del runtime:
 
 ```text
+calendar/
+  board/
+    ts/
+      VERSION
+      package.json
+
 crud/
   ui/
     ts/
@@ -33,6 +41,11 @@ kanban/
     ts/
       VERSION
       package.json
+
+sidebar/
+  ts/
+    VERSION
+    package.json
 ```
 
 ## Semántica
@@ -47,9 +60,11 @@ kanban/
 
 Los tags se cortan por subdirectorio:
 
+- `calendar/board/ts/v0.1.0`
 - `crud/ui/ts/v0.1.0`
 - `crud/paths/go/v0.1.0`
 - `kanban/board/ts/v0.1.0`
+- `sidebar/ts/v0.1.0`
 - `ui/data-display/ts/v0.1.0`
 - `ui/filters/ts/v0.1.0`
 - `ui/forms/ts/v0.1.0`
