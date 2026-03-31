@@ -1,5 +1,5 @@
 # typecheck + tests del paquete @devpablocristo/modules-ui-filters.
-FROM node:20.17.0-bookworm-slim
+FROM node:20.19.0-bookworm-slim
 WORKDIR /repo/modules/ui/filters/ts
 
 COPY modules/ui/filters/ts/package.json ./
