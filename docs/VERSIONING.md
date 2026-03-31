@@ -4,6 +4,7 @@
 
 La unidad de versionado es cada implementación concreta:
 
+- `ai/console/ts`
 - `calendar/board/ts`
 - `crud/ui/ts`
 - `crud/paths/go`
@@ -18,6 +19,12 @@ La unidad de versionado es cada implementación concreta:
 Cada implementación tiene su propio archivo `VERSION` en la raíz del runtime:
 
 ```text
+ai/
+  console/
+    ts/
+      VERSION
+      package.json
+
 calendar/
   board/
     ts/
@@ -60,6 +67,7 @@ sidebar/
 
 Los tags se cortan por subdirectorio:
 
+- `ai/console/ts/v0.1.0`
 - `calendar/board/ts/v0.1.0`
 - `crud/ui/ts/v0.1.0`
 - `crud/paths/go/v0.1.0`

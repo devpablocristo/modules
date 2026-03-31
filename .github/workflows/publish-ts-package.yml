@@ -3,6 +3,7 @@ name: modules-publish-ts-package
 on:
   push:
     tags:
+      - "ai/console/ts/v*"
       - "calendar/board/ts/v*"
       - "crud/ui/ts/v*"
       - "kanban/board/ts/v*"
