@@ -7,6 +7,7 @@ on:
       - "calendar/board/ts/v*"
       - "crud/ui/ts/v*"
       - "kanban/board/ts/v*"
+      - "search/ts/v*"
       - "sidebar/ts/v*"
       - "ui/data-display/ts/v*"
       - "ui/filters/ts/v*"
