@@ -8,6 +8,7 @@
  */
 import { FormEvent, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { CrudPageShell, parseListItemsFromResponse } from "@devpablocristo/core-browser/crud";
+import { search as fuzzySearch, type SearchEntry } from "@devpablocristo/core-browser/search";
 import { crudItemPath, crudListPath } from "./restPaths";
 import { interpolate, mergeCrudStrings, type CrudStrings, defaultCrudStrings } from "./strings";
 import type {
@@ -325,10 +326,16 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
     return preSearchFilter(items);
   }, [items, preSearchFilter]);
 
-  const filtered = preSearchItems.filter((row) => {
-    if (!search.trim()) return true;
-    return searchText(row).toLowerCase().includes(search.trim().toLowerCase());
-  });
+  const searchEntries = useMemo<SearchEntry<T>[]>(
+    () => preSearchItems.map((row) => ({ item: row, text: searchText(row) })),
+    [preSearchItems, searchText],
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim();
+    if (q.length === 0) return preSearchItems;
+    return fuzzySearch(q, searchEntries).map((r) => r.item);
+  }, [search, preSearchItems, searchEntries]);
 
   const visibleToolbarActions = toolbarActions.filter((action) => action.isVisible?.({ archived: showArchived, items }) ?? true);
   const showToolbarButtonRow =

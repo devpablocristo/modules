@@ -9,7 +9,11 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,
-    "strict": true
+    "strict": true,
+    "paths": {
+      "@devpablocristo/core-browser/search": ["../../../../core/browser/ts/src/search/index.ts"]
+    },
+    "typeRoots": ["./node_modules/@types"]
   },
   "include": ["src", "tests"]
 }
