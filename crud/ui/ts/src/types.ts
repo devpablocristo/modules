@@ -119,4 +119,9 @@ export type CrudPageConfig<T extends { id: string }> = {
    * Contenido entre la búsqueda y la fila de botones de cabecera (p. ej. filtros tipo píldora).
    */
   listHeaderInlineSlot?: (ctx: CrudListHeaderSlotContext<T>) => ReactNode;
+  /**
+   * Búsqueda controlada desde afuera (p. ej. un buscador global de la página).
+   * Si está definido, oculta el input de búsqueda interno y usa este valor.
+   */
+  externalSearch?: string;
 };

@@ -60,6 +60,8 @@ export type StatusKanbanBoardProps<T extends { id: string }> = {
   afterStats?: ReactNode;
   /** Fila bajo el buscador en la columna derecha (p. ej. mismas acciones que el listado CRUD). */
   toolbarButtonRow?: ReactNode;
+  /** Búsqueda controlada desde afuera. Si está definido, oculta el input interno. */
+  externalSearch?: string;
 };
 
 function ColumnBody({
@@ -163,12 +165,14 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
     searchInputClassName,
     afterStats,
     toolbarButtonRow,
+    externalSearch,
   } = props;
 
   const rowDraggable = isRowDraggable ?? (() => true);
   const columnDroppable = isColumnDroppable ?? (() => true);
 
-  const [search, setSearch] = useState("");
+  const [internalSearch, setInternalSearch] = useState("");
+  const search = externalSearch ?? internalSearch;
   const [activeDrag, setActiveDrag] = useState<T | null>(null);
   const itemsRef = useRef<T[]>([]);
   itemsRef.current = items;
@@ -255,17 +259,19 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
           {afterStats ? <div className="crud-list-header-lead">{afterStats}</div> : null}
         </div>
         <div className="crud-page-shell__header-actions">
-          <div className="crud-list-header-search">
-            <input
-              type="search"
-              className={[searchInputClassName, "crud-search m-kanban__search"].filter(Boolean).join(" ").trim()}
-              placeholder={searchPlaceholder ?? ""}
-              autoComplete="off"
-              value={search}
-              onChange={(ev) => setSearch(ev.target.value)}
-              aria-label={searchPlaceholder ?? "Filtrar"}
-            />
-          </div>
+          {externalSearch == null && (
+            <div className="crud-list-header-search">
+              <input
+                type="search"
+                className={[searchInputClassName, "crud-search m-kanban__search"].filter(Boolean).join(" ").trim()}
+                placeholder={searchPlaceholder ?? ""}
+                autoComplete="off"
+                value={internalSearch}
+                onChange={(ev) => setInternalSearch(ev.target.value)}
+                aria-label={searchPlaceholder ?? "Filtrar"}
+              />
+            </div>
+          )}
           {toolbarButtonRow != null ? (
             <div className="actions-row">{toolbarButtonRow}</div>
           ) : null}

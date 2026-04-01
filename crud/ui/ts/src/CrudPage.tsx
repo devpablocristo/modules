@@ -79,6 +79,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
     onExternalEdit,
     preSearchFilter,
     listHeaderInlineSlot,
+    externalSearch,
   } = props;
 
   const str = useMemo(() => mergeCrudStrings(stringsBase, stringsPartial), [stringsBase, stringsPartial]);
@@ -96,7 +97,8 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
+  const [internalSearch, setInternalSearch] = useState("");
+  const search = externalSearch ?? internalSearch;
   const [showArchived, setShowArchived] = useState(false);
 
   const [editing, setEditing] = useState<T | null>(null);
@@ -364,17 +366,19 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
       }
       headerActions={
         <>
-          <div className="crud-list-header-search">
-            <input
-              type="search"
-              className="crud-search m-kanban__search"
-              placeholder={searchPlaceholderResolved}
-              aria-label={searchPlaceholderResolved}
-              autoComplete="off"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
+          {externalSearch == null && (
+            <div className="crud-list-header-search">
+              <input
+                type="search"
+                className="crud-search m-kanban__search"
+                placeholder={searchPlaceholderResolved}
+                aria-label={searchPlaceholderResolved}
+                autoComplete="off"
+                value={internalSearch}
+                onChange={(event) => setInternalSearch(event.target.value)}
+              />
+            </div>
+          )}
           {showToolbarButtonRow ? (
             <div className="actions-row">
               {visibleToolbarActions.map((action) => (
