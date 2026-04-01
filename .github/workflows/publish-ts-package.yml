@@ -12,6 +12,7 @@ on:
       - "ui/data-display/ts/v*"
       - "ui/filters/ts/v*"
       - "ui/forms/ts/v*"
+      - "ui/notification-feed/ts/v*"
 
 permissions:
   contents: read
