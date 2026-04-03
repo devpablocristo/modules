@@ -149,6 +149,7 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
     items,
     loading,
     error,
+    onReload,
     onMoveCard,
     resolveDropColumnId,
     sortInColumn,
@@ -271,7 +272,22 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
           ariaLabel: searchPlaceholder ?? "Buscar...",
           inputClassName: [searchInputClassName, "m-kanban__search"].filter(Boolean).join(" ").trim(),
         } : undefined}
-        headerActions={toolbarButtonRow}
+        headerActions={onReload != null || toolbarButtonRow != null ? (
+          <>
+            {onReload != null ? (
+              <button
+                type="button"
+                className="btn-sm btn-secondary"
+                onClick={() => {
+                  void onReload();
+                }}
+              >
+                Reload
+              </button>
+            ) : null}
+            {toolbarButtonRow}
+          </>
+        ) : undefined}
         error={error ? (
           <p className="m-kanban__error" role="alert">
             {error}

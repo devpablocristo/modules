@@ -9,6 +9,7 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "skipLibCheck": true,
     "strict": true,
     "paths": {
       "@devpablocristo/core-browser/search": ["../../../core/browser/ts/src/search/index.ts"]
