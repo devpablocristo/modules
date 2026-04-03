@@ -26,7 +26,7 @@ export type AppShellProps = PropsWithChildren<{
   formatLabel?: (label: string) => string;
   /** Pathname actual para scroll-to-top. */
   pathname?: string;
-  /** Placeholder del buscador. Default: "Buscar…" */
+  /** Placeholder del buscador. Default: "Buscar..." */
   searchPlaceholder?: string;
 }>;
 
@@ -42,7 +42,7 @@ export function AppShell({
   renderLink,
   formatLabel = (s) => s,
   pathname,
-  searchPlaceholder = 'Buscar…',
+  searchPlaceholder = 'Buscar...',
 }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [query, setQuery] = useState('');

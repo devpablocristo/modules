@@ -5,16 +5,16 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@devpablocristo/core-browser": ["../../../core/browser/ts/src/index.ts"],
+      "@devpablocristo/modules-calendar-board": ["../../calendar/board/ts/src/index.ts"]
+    },
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,
-    "strict": true,
-    "paths": {
-      "@devpablocristo/core-browser/crud": ["../../../../core/browser/ts/src/crud/index.ts"],
-      "@devpablocristo/core-browser/search": ["../../../../core/browser/ts/src/search/index.ts"]
-    },
-    "typeRoots": ["./node_modules/@types"]
+    "strict": true
   },
   "include": ["src", "tests"]
 }

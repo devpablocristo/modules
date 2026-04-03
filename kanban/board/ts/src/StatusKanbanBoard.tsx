@@ -14,6 +14,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { CrudPageShell } from "@devpablocristo/core-browser/crud";
 import { useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { kanbanCollisionDetection } from "./collision";
 import "./StatusKanbanBoard.css";
@@ -46,6 +47,7 @@ export type StatusKanbanBoardProps<T extends { id: string }> = {
   onCardOpen: (row: T) => void;
   title: string;
   subtitle?: string;
+  headerLeadSlot?: ReactNode;
   searchPlaceholder?: string;
   statsLine: (visibleCount: number, totalCount: number) => string;
   emptyState?: ReactNode;
@@ -54,7 +56,7 @@ export type StatusKanbanBoardProps<T extends { id: string }> = {
   isRowDraggable?: (row: T) => boolean;
   /** Si devuelve false, la columna no acepta soltar (p. ej. columna solo lectura). Por defecto todas droppable. */
   isColumnDroppable?: (columnId: string) => boolean;
-  /** Clase extra para el input de búsqueda (p. ej. alinear con CRUD `.crud-search`). */
+  /** Clase extra para el input de búsqueda canónico. */
   searchInputClassName?: string;
   /** Contenido entre la línea de estadísticas y el tablero (p. ej. filtros por persona). */
   afterStats?: ReactNode;
@@ -156,6 +158,7 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
     onCardOpen,
     title,
     subtitle,
+    headerLeadSlot,
     searchPlaceholder,
     statsLine,
     emptyState,
@@ -249,83 +252,77 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
 
   return (
     <div className="m-kanban">
-      <div className="page-header crud-page-shell__header">
-        <div className="crud-page-shell__header-main">
-          <h1 className="crud-page-shell__title">{title}</h1>
-          {subtitle ? <p className="text-secondary">{subtitle}</p> : null}
-          <p className="text-secondary" aria-live="polite">
-            {loading ? "Cargando…" : statsLine(totalVisible, items.length)}
+      <CrudPageShell
+        title={title}
+        subtitle={subtitle}
+        headerLeadSlot={
+          <>
+            {headerLeadSlot != null ? <div className="crud-list-header-lead">{headerLeadSlot}</div> : null}
+            <p className="text-secondary" aria-live="polite">
+              {loading ? "Cargando…" : statsLine(totalVisible, items.length)}
+            </p>
+            {afterStats ? <div className="crud-list-header-lead">{afterStats}</div> : null}
+          </>
+        }
+        search={externalSearch == null ? {
+          value: internalSearch,
+          onChange: setInternalSearch,
+          placeholder: searchPlaceholder ?? "Buscar...",
+          ariaLabel: searchPlaceholder ?? "Buscar...",
+          inputClassName: [searchInputClassName, "m-kanban__search"].filter(Boolean).join(" ").trim(),
+        } : undefined}
+        headerActions={toolbarButtonRow}
+        error={error ? (
+          <p className="m-kanban__error" role="alert">
+            {error}
           </p>
-          {afterStats ? <div className="crud-list-header-lead">{afterStats}</div> : null}
-        </div>
-        <div className="crud-page-shell__header-actions">
-          {externalSearch == null && (
-            <div className="crud-list-header-search">
-              <input
-                type="search"
-                className={[searchInputClassName, "crud-search m-kanban__search"].filter(Boolean).join(" ").trim()}
-                placeholder={searchPlaceholder ?? ""}
-                autoComplete="off"
-                value={internalSearch}
-                onChange={(ev) => setInternalSearch(ev.target.value)}
-                aria-label={searchPlaceholder ?? "Filtrar"}
-              />
-            </div>
-          )}
-          {toolbarButtonRow != null ? (
-            <div className="actions-row">{toolbarButtonRow}</div>
-          ) : null}
-        </div>
-      </div>
-
-      {error ? (
-        <p className="m-kanban__error" role="alert">
-          {error}
-        </p>
-      ) : null}
-
-      {!loading && items.length === 0 && emptyState ? <div className="m-kanban__empty">{emptyState}</div> : null}
-
-      <DndContext
-        sensors={sensors}
-        collisionDetection={kanbanCollisionDetection}
-        autoScroll={false}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
+        ) : undefined}
       >
-        <div className="m-kanban__board">
-          {columns.map((col) => {
-            const columnItems = byColumn.get(col.id) ?? [];
-            return (
-              <div key={col.id} className="m-kanban__column-shell">
-                <ColumnBody
-                  columnId={col.id}
-                  label={col.label}
-                  count={columnItems.length}
-                  boardDragging={boardDragging}
-                  droppable={columnDroppable(col.id)}
-                  footer={columnFooter?.(col.id)}
-                >
-                  {columnItems.map((row) => (
-                    <DraggableCard
-                      key={row.id}
-                      row={row}
-                      renderCard={renderCard}
-                      onCardOpen={onCardOpen}
-                      suppressOpenRef={suppressCardOpenRef}
-                      draggable={rowDraggable(row)}
-                    />
-                  ))}
-                </ColumnBody>
-              </div>
-            );
-          })}
-        </div>
-        <DragOverlay dropAnimation={{ duration: 160, easing: "cubic-bezier(0.25, 1, 0.5, 1)" }}>
-          {activeDrag ? renderOverlayCard(activeDrag) : null}
-        </DragOverlay>
-      </DndContext>
+        <>
+          {!loading && items.length === 0 && emptyState ? <div className="m-kanban__empty">{emptyState}</div> : null}
+
+          <DndContext
+            sensors={sensors}
+            collisionDetection={kanbanCollisionDetection}
+            autoScroll={false}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
+          >
+            <div className="m-kanban__board">
+              {columns.map((col) => {
+                const columnItems = byColumn.get(col.id) ?? [];
+                return (
+                  <div key={col.id} className="m-kanban__column-shell">
+                    <ColumnBody
+                      columnId={col.id}
+                      label={col.label}
+                      count={columnItems.length}
+                      boardDragging={boardDragging}
+                      droppable={columnDroppable(col.id)}
+                      footer={columnFooter?.(col.id)}
+                    >
+                      {columnItems.map((row) => (
+                        <DraggableCard
+                          key={row.id}
+                          row={row}
+                          renderCard={renderCard}
+                          onCardOpen={onCardOpen}
+                          suppressOpenRef={suppressCardOpenRef}
+                          draggable={rowDraggable(row)}
+                        />
+                      ))}
+                    </ColumnBody>
+                  </div>
+                );
+              })}
+            </div>
+            <DragOverlay dropAnimation={{ duration: 160, easing: "cubic-bezier(0.25, 1, 0.5, 1)" }}>
+              {activeDrag ? renderOverlayCard(activeDrag) : null}
+            </DragOverlay>
+          </DndContext>
+        </>
+      </CrudPageShell>
     </div>
   );
 }

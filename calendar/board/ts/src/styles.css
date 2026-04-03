@@ -134,6 +134,23 @@
 .modules-calendar .fc {
   font-family: var(--font-body);
   height: 100%;
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: transparent;
+  --fc-highlight-color: transparent;
+  --fc-bg-event-color: transparent;
+  --fc-bg-event-opacity: 0;
+  --fc-today-bg-color: transparent;
+}
+
+.modules-calendar .fc-theme-standard,
+.modules-calendar .fc-theme-standard table,
+.modules-calendar .fc .fc-scrollgrid,
+.modules-calendar .fc .fc-scrollgrid-section,
+.modules-calendar .fc .fc-scroller-harness,
+.modules-calendar .fc .fc-scroller,
+.modules-calendar .fc .fc-view-harness,
+.modules-calendar .fc .fc-view {
+  background: transparent !important;
 }
 
 .modules-calendar .fc .fc-scrollgrid {
@@ -184,6 +201,14 @@
   min-height: 28px;
 }
 
+.modules-calendar .fc .fc-timegrid-col-bg,
+.modules-calendar .fc .fc-daygrid-day-bg,
+.modules-calendar .fc .fc-cell-shaded,
+.modules-calendar .fc .fc-non-business,
+.modules-calendar .fc .fc-bg-event {
+  background: transparent !important;
+}
+
 .modules-calendar .fc .fc-col-header-cell {
   padding: var(--space-1) 0;
   background: transparent;
@@ -215,6 +240,65 @@
 
 .modules-calendar .fc .fc-day-today {
   background: transparent !important;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today .fc-timegrid-col-frame,
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today .fc-timegrid-slot-lane {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent) !important;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today {
+  position: relative;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today::before,
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, white 82%, transparent);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today::before {
+  left: 0;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today::after {
+  right: 0;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion {
+  color: var(--color-primary);
+}
+
+.modules-calendar .fc .fc-timeGridDay-view .fc-day-today .fc-timegrid-col-frame,
+.modules-calendar .fc .fc-timeGridDay-view .fc-day-today .fc-timegrid-slot-lane {
+  background: transparent !important;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-col-frame,
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-slot-lane {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent) !important;
+}
+
+.modules-calendar .fc .fc-timeGridWeek-view .fc-col-header-cell.fc-day-hovered .fc-col-header-cell-cushion {
+  color: var(--color-primary);
+}
+
+.modules-calendar .fc .fc-day-hovered .fc-daygrid-day-number {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 .modules-calendar .fc .fc-day-today .fc-daygrid-day-number {
@@ -280,11 +364,11 @@
 }
 
 .modules-calendar .fc .fc-highlight {
-  background: var(--color-primary-subtle);
+  background: transparent !important;
 }
 
 [data-theme="dark"] .modules-calendar .fc .fc-highlight {
-  background: rgba(96, 165, 250, 0.12);
+  background: transparent !important;
 }
 
 .modules-calendar .fc .fc-button {

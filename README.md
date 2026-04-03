@@ -15,10 +15,13 @@ modules/
     paths/go        → module github.com/devpablocristo/modules/crud/paths/go
   kanban/
     board/ts        → npm @devpablocristo/modules-kanban-board
+  scheduling/
+    go             → module github.com/devpablocristo/modules/scheduling/go
   ui/
     data-display/ts → npm @devpablocristo/modules-ui-data-display
     filters/ts      → npm @devpablocristo/modules-ui-filters
     forms/ts        → npm @devpablocristo/modules-ui-forms
+    notification-feed/ts → npm @devpablocristo/modules-ui-notification-feed
 ```
 
 ## Responsabilidades
@@ -27,7 +30,9 @@ modules/
 - `calendar`: calendario reusable basado en FullCalendar.
 - `crud`: shell CRUD y segmentos HTTP compartidos.
 - `kanban`: tablero por estados y drag and drop.
+- `scheduling`: bounded context reusable de agenda y cola virtual, montado encima de primitivas de scheduling en `core`.
 - `ui`: primitivas de interfaz genéricas que no pertenecen a CRUD ni a Kanban.
+  Incluye `notification-feed` para bandejas de avisos no-chat y entradas accionables.
 
 ## Referencias
 
@@ -52,9 +57,11 @@ La unidad de versionado es cada implementación concreta:
 - `crud/ui/ts`
 - `crud/paths/go`
 - `kanban/board/ts`
+- `scheduling/go`
 - `ui/data-display/ts`
 - `ui/filters/ts`
 - `ui/forms/ts`
+- `ui/notification-feed/ts`
 
 Cada una tiene su propio archivo `VERSION`.
 

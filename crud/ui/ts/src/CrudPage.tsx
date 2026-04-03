@@ -364,59 +364,48 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
           <div className="crud-list-header-lead">{listHeaderInlineSlot({ items })}</div>
         ) : undefined
       }
-      headerActions={
+      search={externalSearch == null ? {
+        value: internalSearch,
+        onChange: setInternalSearch,
+        placeholder: searchPlaceholderResolved,
+        inputClassName: "m-kanban__search",
+      } : undefined}
+      headerActions={showToolbarButtonRow ? (
         <>
-          {externalSearch == null && (
-            <div className="crud-list-header-search">
-              <input
-                type="search"
-                className="crud-search m-kanban__search"
-                placeholder={searchPlaceholderResolved}
-                aria-label={searchPlaceholderResolved}
-                autoComplete="off"
-                value={internalSearch}
-                onChange={(event) => setInternalSearch(event.target.value)}
-              />
-            </div>
+          {visibleToolbarActions.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              className={buttonClass(action.kind)}
+              onClick={() => {
+                void runToolbarAction(action);
+              }}
+            >
+              {formatFieldText(action.label)}
+            </button>
+          ))}
+          {canCreate && (
+            <button type="button" className="btn-sm btn-primary" onClick={openCreate}>
+              {createLabel
+                ? formatFieldText(createLabel)
+                : sentenceCase(interpolate(str.buttonNew, vars))}
+            </button>
           )}
-          {showToolbarButtonRow ? (
-            <div className="actions-row">
-              {visibleToolbarActions.map((action) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  className={buttonClass(action.kind)}
-                  onClick={() => {
-                    void runToolbarAction(action);
-                  }}
-                >
-                  {formatFieldText(action.label)}
-                </button>
-              ))}
-              {canCreate && (
-                <button type="button" className="btn-sm btn-primary" onClick={openCreate}>
-                  {createLabel
-                    ? formatFieldText(createLabel)
-                    : sentenceCase(interpolate(str.buttonNew, vars))}
-                </button>
-              )}
-              {supportsArchived && (
-                <button
-                  type="button"
-                  className={`btn-sm ${showArchived ? "btn-primary" : "btn-secondary"}`}
-                  onClick={() => {
-                    closeForm();
-                    cancelHardDelete();
-                    setShowArchived((current) => !current);
-                  }}
-                >
-                  {showArchived ? str.toggleShowActive : str.toggleShowArchived}
-                </button>
-              )}
-            </div>
-          ) : null}
+          {supportsArchived && (
+            <button
+              type="button"
+              className={`btn-sm ${showArchived ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => {
+                closeForm();
+                cancelHardDelete();
+                setShowArchived((current) => !current);
+              }}
+            >
+              {showArchived ? str.toggleShowActive : str.toggleShowArchived}
+            </button>
+          )}
         </>
-      }
+      ) : undefined}
       error={error ? <div className="alert alert-error">{error}</div> : undefined}
       form={
         showForm && (!showArchived || creating) ? (
@@ -565,10 +554,12 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
                           )}
                           {canHardDelete &&
                             (confirmDeleteId === row.id ? (
-                              <div className="confirm-delete-inline">
-                                <span className="confirm-delete-hint">
-                                  {interpolate(str.confirmHint, { word: hardDeleteWord })}
-                                </span>
+                              <div className="confirm-delete-inline" role="group" aria-label={`${str.actionDelete} ${label}`}>
+                                <div className="confirm-delete-copy">
+                                  <span className="confirm-delete-hint">
+                                    {interpolate(str.confirmHint, { word: hardDeleteWord })}
+                                  </span>
+                                </div>
                                 <input
                                   type="text"
                                   className="confirm-delete-input"
@@ -577,22 +568,24 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
                                   placeholder={str.confirmPlaceholder}
                                   autoFocus
                                 />
-                                <button
-                                  type="button"
-                                  className="btn-sm btn-danger"
-                                  disabled={
-                                    confirmDeleteText.toLowerCase() !== hardDeleteWord.toLowerCase() ||
-                                    busyKey === `${row.id}:hard-delete`
-                                  }
-                                  onClick={() => {
-                                    void hardDeleteRow(row);
-                                  }}
-                                >
-                                  {busyKey === `${row.id}:hard-delete` ? "..." : str.actionConfirm}
-                                </button>
-                                <button type="button" className="btn-sm btn-secondary" onClick={cancelHardDelete}>
-                                  {str.actionCancel}
-                                </button>
+                                <div className="confirm-delete-actions">
+                                  <button
+                                    type="button"
+                                    className="btn-sm btn-danger"
+                                    disabled={
+                                      confirmDeleteText.toLowerCase() !== hardDeleteWord.toLowerCase() ||
+                                      busyKey === `${row.id}:hard-delete`
+                                    }
+                                    onClick={() => {
+                                      void hardDeleteRow(row);
+                                    }}
+                                  >
+                                    {busyKey === `${row.id}:hard-delete` ? "..." : str.actionConfirm}
+                                  </button>
+                                  <button type="button" className="btn-sm btn-secondary" onClick={cancelHardDelete}>
+                                    {str.actionCancel}
+                                  </button>
+                                </div>
                               </div>
                             ) : (
                               <button

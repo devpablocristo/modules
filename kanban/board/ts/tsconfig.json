@@ -9,7 +9,11 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,
-    "strict": true
+    "strict": true,
+    "paths": {
+      "@devpablocristo/core-browser/crud": ["../../../../core/browser/ts/src/crud/index.ts"],
+      "@devpablocristo/core-browser/search": ["../../../../core/browser/ts/src/search/index.ts"]
+    }
   },
   "include": ["src", "tests"]
 }
