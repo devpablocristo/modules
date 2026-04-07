@@ -197,6 +197,14 @@
   text-transform: lowercase;
 }
 
+.modules-calendar .fc .fc-timegrid-axis-cushion {
+  display: none;
+}
+
+.modules-calendar .fc .fc-timegrid-axis {
+  width: 60px;
+}
+
 .modules-calendar .fc .fc-daygrid-day-frame {
   min-height: 28px;
 }
@@ -281,17 +289,22 @@
 }
 
 .modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-col-frame,
-.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-slot-lane {
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent) !important;
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-slot-lane,
+.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-col-bg {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent) !important;
 }
 
 .modules-calendar .fc .fc-timeGridWeek-view .fc-col-header-cell.fc-day-hovered .fc-col-header-cell-cushion {
-  color: var(--color-primary);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-radius: 999px;
+  padding: 4px 8px;
 }
 
 .modules-calendar .fc .fc-day-hovered .fc-daygrid-day-number {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
   border-radius: 50%;
   width: 28px;
   height: 28px;

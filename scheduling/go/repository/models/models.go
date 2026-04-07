@@ -24,6 +24,7 @@ func (BranchModel) TableName() string { return "scheduling_branches" }
 type ServiceModel struct {
 	ID                     uuid.UUID `gorm:"type:uuid;primaryKey"`
 	OrgID                  uuid.UUID `gorm:"type:uuid;index;not null"`
+	CommercialServiceID    *uuid.UUID `gorm:"column:commercial_service_id;type:uuid"`
 	Code                   string    `gorm:"not null"`
 	Name                   string    `gorm:"not null"`
 	Description            string

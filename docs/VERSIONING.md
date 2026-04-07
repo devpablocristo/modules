@@ -13,6 +13,9 @@ La unidad de versionado es cada implementación concreta:
 - `ui/data-display/ts`
 - `ui/filters/ts`
 - `ui/forms/ts`
+- `ui/modal/ts`
+- `ui/page-shell/ts`
+- `ui/section-hub/ts`
 
 ## Regla
 
@@ -53,6 +56,24 @@ sidebar/
   ts/
     VERSION
     package.json
+
+ui/
+  modal/
+    ts/
+      VERSION
+      package.json
+
+ui/
+  page-shell/
+    ts/
+      VERSION
+      package.json
+
+ui/
+  section-hub/
+    ts/
+      VERSION
+      package.json
 ```
 
 ## Semántica
@@ -76,6 +97,9 @@ Los tags se cortan por subdirectorio:
 - `ui/data-display/ts/v0.1.0`
 - `ui/filters/ts/v0.1.0`
 - `ui/forms/ts/v0.1.0`
+- `ui/modal/ts/v0.1.0`
+- `ui/page-shell/ts/v0.1.0`
+- `ui/section-hub/ts/v0.1.0`
 
 Para Go esto sigue la convención correcta de módulos versionados en subdirectorios del monorepo.
 

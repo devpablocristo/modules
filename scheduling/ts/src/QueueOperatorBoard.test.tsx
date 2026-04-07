@@ -109,7 +109,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
   } as SchedulingClient;
 }
 
-function renderBoard(client: SchedulingClient) {
+function renderBoard(client: SchedulingClient, locale = 'es') {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -119,7 +119,7 @@ function renderBoard(client: SchedulingClient) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <QueueOperatorBoard client={client} locale="es" initialBranchId="branch-1" initialDate="2099-04-05" />
+      <QueueOperatorBoard client={client} locale={locale} initialBranchId="branch-1" initialDate="2099-04-05" />
     </QueryClientProvider>,
   );
 }
@@ -156,5 +156,13 @@ describe('QueueOperatorBoard', () => {
       expect(confirmActionMock).toHaveBeenCalled();
       expect(client.closeQueue).toHaveBeenCalledWith('queue-1');
     });
+  });
+
+  it('keeps spanish copy when using a regional spanish locale', async () => {
+    const client = createClient();
+
+    renderBoard(client, 'es-AR');
+
+    expect(await screen.findByRole('button', { name: 'Cerrar cola' })).toBeTruthy();
   });
 });

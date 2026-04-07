@@ -86,6 +86,21 @@ function renderSummary(client: SchedulingClient) {
   );
 }
 
+function renderSummaryWithLocale(client: SchedulingClient, locale: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SchedulingDaySummary client={client} locale={locale} initialDate="2099-12-01" />
+    </QueryClientProvider>,
+  );
+}
+
 describe('SchedulingDaySummary', () => {
   it('renders stats, next booking and queue flow from the shared client', async () => {
     const client = createClient();
@@ -93,7 +108,7 @@ describe('SchedulingDaySummary', () => {
     renderSummary(client);
 
     await waitFor(() => {
-      expect(screen.getByText('Scheduling de hoy')).toBeTruthy();
+      expect(screen.getByText('Agenda de hoy')).toBeTruthy();
       expect(screen.getByText('12')).toBeTruthy();
       expect(screen.getByText('7')).toBeTruthy();
       expect(screen.getByText('2')).toBeTruthy();
@@ -101,8 +116,19 @@ describe('SchedulingDaySummary', () => {
     });
 
     expect(screen.getByText('Consulta Ada')).toBeTruthy();
-    expect(screen.getByText('confirmed')).toBeTruthy();
+    expect(screen.getByText('Confirmada')).toBeTruthy();
     expect(screen.getByText('A-17')).toBeTruthy();
-    expect(screen.getByText('waiting')).toBeTruthy();
+    expect(screen.getAllByText('Esperando').length).toBeGreaterThan(0);
+  });
+
+  it('supports regional locales while keeping the correct copy preset', async () => {
+    const client = createClient();
+
+    renderSummaryWithLocale(client, 'es-AR');
+
+    await waitFor(() => {
+      expect(screen.getByText('Agenda de hoy')).toBeTruthy();
+      expect(screen.getByText(/dic/i)).toBeTruthy();
+    });
   });
 });

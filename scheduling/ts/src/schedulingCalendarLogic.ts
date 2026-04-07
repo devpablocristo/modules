@@ -1,0 +1,340 @@
+import type { EventInput } from '@fullcalendar/core';
+import type {
+  SchedulingBookingCreateEditor,
+  SchedulingBookingCreateResourceOption,
+  SchedulingBookingModalState,
+  SchedulingBookingRecurrenceDraft,
+} from './SchedulingBookingModal';
+import type { AvailabilityRule, Booking, Branch, CalendarEvent, Resource, Service, TimeSlot } from './types';
+
+export type SchedulingBusinessHours = {
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+};
+
+type BuildCreateModalStateParams = {
+  start: Date;
+  startAt: string;
+  end?: Date | null;
+  endAt?: string | null;
+  slots: readonly TimeSlot[];
+  selectedService: Service | null;
+  selectedResource: Resource | null;
+  filteredResources: readonly Resource[];
+  selectedBranch: Branch | null;
+};
+
+export function slotDurationMinutes(slot: TimeSlot): number {
+  const start = new Date(slot.start_at).getTime();
+  const end = new Date(slot.end_at).getTime();
+  return Math.max(0, Math.round((end - start) / 60000));
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+export function toDateInputValue(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10);
+  }
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+}
+
+export function toTimeInputValue(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+export function buildCreateEditorFromSlot(slot: TimeSlot): SchedulingBookingCreateEditor {
+  return {
+    date: toDateInputValue(slot.start_at),
+    startTime: toTimeInputValue(slot.start_at),
+    endTime: toTimeInputValue(slot.end_at),
+    resourceId: slot.resource_id,
+  };
+}
+
+export function buildDefaultRecurrenceDraft(slot: TimeSlot): SchedulingBookingRecurrenceDraft {
+  const weekday = new Date(slot.start_at).getUTCDay();
+  return {
+    mode: 'none',
+    frequency: 'weekly',
+    interval: '1',
+    count: '8',
+    byWeekday: [weekday],
+  };
+}
+
+export function resolveBookingDisplayTitle(booking: Booking): string {
+  const metadataTitle = booking.metadata?.title;
+  return typeof metadataTitle === 'string' && metadataTitle.trim() ? metadataTitle.trim() : booking.customer_name;
+}
+
+export function buildCreateResourceOptions(resources: readonly Resource[], slot: TimeSlot): SchedulingBookingCreateResourceOption[] {
+  const merged = resources.some((resource) => resource.id === slot.resource_id)
+    ? resources
+    : [
+        ...resources,
+        {
+          id: slot.resource_id,
+          org_id: '',
+          branch_id: '',
+          code: slot.resource_id,
+          name: slot.resource_name,
+          kind: 'generic',
+          capacity: 1,
+          timezone: slot.timezone,
+          active: true,
+          created_at: '',
+          updated_at: '',
+        },
+      ];
+  return merged.map((resource) => ({
+    id: resource.id,
+    name: resource.name,
+    timezone: resource.timezone,
+  }));
+}
+
+function slotIdentity(slot: TimeSlot): string {
+  return `${slot.resource_id}:${slot.start_at}:${slot.end_at}`;
+}
+
+export function buildSlotIdentity(resourceId: string, startAt: string, endAt: string): string {
+  return `${resourceId}:${startAt}:${endAt}`;
+}
+
+type ClockWindow = {
+  start: string;
+  end: string;
+};
+
+function normalizeClock(value: string): string {
+  return value.slice(0, 5);
+}
+
+function toClockMinutes(value: string): number {
+  const [hours, minutes] = normalizeClock(value).split(':').map((piece) => Number(piece));
+  return hours * 60 + minutes;
+}
+
+function intersectClockWindows(left: readonly ClockWindow[], right: readonly ClockWindow[]): ClockWindow[] {
+  if (!left.length || !right.length) {
+    return [];
+  }
+  const intersections: ClockWindow[] = [];
+  for (const leftWindow of left) {
+    const leftStart = toClockMinutes(leftWindow.start);
+    const leftEnd = toClockMinutes(leftWindow.end);
+    for (const rightWindow of right) {
+      const start = Math.max(leftStart, toClockMinutes(rightWindow.start));
+      const end = Math.min(leftEnd, toClockMinutes(rightWindow.end));
+      if (end <= start) {
+        continue;
+      }
+      intersections.push({
+        start: `${String(Math.floor(start / 60)).padStart(2, '0')}:${String(start % 60).padStart(2, '0')}`,
+        end: `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`,
+      });
+    }
+  }
+  return intersections;
+}
+
+export function buildSchedulingBusinessHours(
+  rules: readonly AvailabilityRule[],
+  selectedResourceId: string | null,
+): SchedulingBusinessHours[] {
+  const activeRules = rules.filter((rule) => rule.active);
+  const businessHours: SchedulingBusinessHours[] = [];
+
+  for (let weekday = 0; weekday <= 6; weekday += 1) {
+    const branchWindows = activeRules
+      .filter((rule) => rule.weekday === weekday && rule.kind === 'branch')
+      .map((rule) => ({ start: normalizeClock(rule.start_time), end: normalizeClock(rule.end_time) }));
+
+    if (!branchWindows.length) {
+      continue;
+    }
+
+    let activeWindows = branchWindows;
+    if (selectedResourceId) {
+      const resourceWindows = activeRules
+        .filter((rule) => rule.weekday === weekday && rule.kind === 'resource' && rule.resource_id === selectedResourceId)
+        .map((rule) => ({ start: normalizeClock(rule.start_time), end: normalizeClock(rule.end_time) }));
+      if (resourceWindows.length) {
+        activeWindows = intersectClockWindows(branchWindows, resourceWindows);
+      }
+    }
+
+    for (const window of activeWindows) {
+      businessHours.push({
+        daysOfWeek: [weekday],
+        startTime: window.start,
+        endTime: window.end,
+      });
+    }
+  }
+
+  return businessHours;
+}
+
+function buildCreateSlotOptions(slot: TimeSlot, slots: readonly TimeSlot[]): TimeSlot[] {
+  const merged = [slot, ...slots];
+  const unique = new Map<string, TimeSlot>();
+  for (const item of merged) {
+    unique.set(slotIdentity(item), item);
+  }
+  return Array.from(unique.values()).sort((left, right) => {
+    const startCompare = left.start_at.localeCompare(right.start_at);
+    if (startCompare !== 0) {
+      return startCompare;
+    }
+    return left.resource_name.localeCompare(right.resource_name);
+  });
+}
+
+export function buildSchedulingCalendarEvents(
+  bookings: readonly Booking[],
+  scheduleServices: readonly Service[],
+  filteredResources: readonly Resource[],
+  eventColor: (status: Booking['status']) => string,
+): CalendarEvent[] {
+  return bookings.map((booking) => {
+    const serviceName = scheduleServices.find((service) => service.id === booking.service_id)?.name;
+    const resourceName = filteredResources.find((resource) => resource.id === booking.resource_id)?.name;
+    return {
+      id: booking.id,
+      kind: 'booking',
+      sourceId: booking.id,
+      sourceType: 'booking',
+      title: resolveBookingDisplayTitle(booking),
+      start_at: booking.start_at,
+      end_at: booking.end_at,
+      color: eventColor(booking.status),
+      status: booking.status,
+      serviceName,
+      resourceName,
+      sourceBooking: booking,
+    };
+  });
+}
+
+export function buildFullCalendarEventInputs(calendarEvents: readonly CalendarEvent[]): EventInput[] {
+  return calendarEvents.map((calendarEvent) => ({
+    id: calendarEvent.id,
+    title: calendarEvent.title,
+    start: calendarEvent.start_at,
+    end: calendarEvent.end_at,
+    color: calendarEvent.color,
+    extendedProps: {
+      calendarEvent,
+    },
+  }));
+}
+
+export function buildSchedulingDetailsModalState(
+  booking: Booking,
+  scheduleServices: readonly Service[],
+  filteredResources: readonly Resource[],
+): SchedulingBookingModalState {
+  return {
+    open: true,
+    mode: 'details',
+    booking,
+    service: scheduleServices.find((service) => service.id === booking.service_id),
+    resourceName: filteredResources.find((resource) => resource.id === booking.resource_id)?.name,
+  };
+}
+
+export function buildSchedulingCreateModalStateFromSlot(
+  slot: TimeSlot,
+  selectedService: Service | null,
+  slots: readonly TimeSlot[],
+  resources: readonly Resource[],
+  resourceName?: string,
+): SchedulingBookingModalState {
+  return {
+    open: true,
+    mode: 'create',
+    slot,
+    slotOptions: buildCreateSlotOptions(slot, slots),
+    resourceOptions: buildCreateResourceOptions(resources, slot),
+    editor: buildCreateEditorFromSlot(slot),
+    validationMessage: null,
+    service: selectedService ?? undefined,
+    resourceName: resourceName ?? slot.resource_name,
+    draft: {
+      title: '',
+      customerName: '',
+      customerPhone: '',
+      customerEmail: '',
+      notes: '',
+      recurrence: buildDefaultRecurrenceDraft(slot),
+    },
+  };
+}
+
+export function buildSchedulingCreateModalStateFromStart({
+  start,
+  startAt,
+  end,
+  endAt,
+  slots,
+  selectedService,
+  selectedResource,
+  filteredResources,
+  selectedBranch,
+}: BuildCreateModalStateParams): SchedulingBookingModalState | null {
+  if (!selectedService) {
+    return null;
+  }
+
+  const matchingSlot =
+    slots.find((slot) => slot.start_at === startAt && (!endAt || slot.end_at === endAt)) ??
+    slots.find((slot) => slot.start_at === startAt);
+  if (matchingSlot) {
+    return buildSchedulingCreateModalStateFromSlot(
+      matchingSlot,
+      selectedService,
+      slots,
+      filteredResources,
+      matchingSlot.resource_name,
+    );
+  }
+
+  const fallbackResource = selectedResource ?? filteredResources[0];
+  if (!fallbackResource) {
+    return null;
+  }
+
+  const provisionalEnd =
+    end && end.getTime() > start.getTime()
+      ? end
+      : new Date(start.getTime() + selectedService.default_duration_minutes * 60_000);
+
+  return buildSchedulingCreateModalStateFromSlot(
+    {
+      resource_id: fallbackResource.id,
+      resource_name: fallbackResource.name,
+      start_at: start.toISOString(),
+      end_at: provisionalEnd.toISOString(),
+      occupies_from: start.toISOString(),
+      occupies_until: provisionalEnd.toISOString(),
+      timezone: fallbackResource.timezone ?? selectedBranch?.timezone ?? 'UTC',
+      remaining: 1,
+      conflict_count: 0,
+      granularity_minutes: selectedService.slot_granularity_minutes,
+    },
+    selectedService,
+    slots,
+    filteredResources,
+    fallbackResource.name,
+  );
+}

@@ -119,6 +119,7 @@ func (r *Repository) CreateService(ctx context.Context, in schedulingdomain.Serv
 		row := schedulingmodels.ServiceModel{
 			ID:                     in.ID,
 			OrgID:                  in.OrgID,
+			CommercialServiceID:    in.CommercialServiceID,
 			Code:                   strings.TrimSpace(in.Code),
 			Name:                   strings.TrimSpace(in.Name),
 			Description:            strings.TrimSpace(in.Description),
@@ -378,59 +379,79 @@ func (r *Repository) CountBookingOverlaps(ctx context.Context, orgID, resourceID
 	return count, nil
 }
 
-func (r *Repository) CreateBooking(ctx context.Context, in schedulingdomain.Booking) (schedulingdomain.Booking, error) {
-	var out schedulingdomain.Booking
+func (r *Repository) CreateBookings(ctx context.Context, items []schedulingdomain.Booking) ([]schedulingdomain.Booking, error) {
+	out := make([]schedulingdomain.Booking, 0, len(items))
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if strings.TrimSpace(in.IdempotencyKey) != "" {
-			var existing schedulingmodels.BookingModel
-			err := tx.Where("org_id = ? AND idempotency_key = ?", in.OrgID, strings.TrimSpace(in.IdempotencyKey)).Take(&existing).Error
-			if err == nil {
-				out = toDomainBooking(existing)
-				return nil
-			}
-			if err != nil && err != gorm.ErrRecordNotFound {
+		for _, item := range items {
+			created, err := r.createBookingTx(tx, item)
+			if err != nil {
 				return err
 			}
+			out = append(out, created)
 		}
-		if err := expireOverdueHoldsTx(tx, in.OrgID, in.ResourceID, in.OccupiesFrom, in.OccupiesUntil); err != nil {
-			return err
-		}
-		now := time.Now().UTC()
-		row := schedulingmodels.BookingModel{
-			ID:             in.ID,
-			OrgID:          in.OrgID,
-			BranchID:       in.BranchID,
-			ServiceID:      in.ServiceID,
-			ResourceID:     in.ResourceID,
-			PartyID:        in.PartyID,
-			Reference:      strings.TrimSpace(in.Reference),
-			CustomerName:   strings.TrimSpace(in.CustomerName),
-			CustomerPhone:  strings.TrimSpace(in.CustomerPhone),
-			CustomerEmail:  strings.TrimSpace(in.CustomerEmail),
-			Status:         string(in.Status),
-			Source:         string(in.Source),
-			IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
-			StartAt:        in.StartAt.UTC(),
-			EndAt:          in.EndAt.UTC(),
-			OccupiesFrom:   in.OccupiesFrom.UTC(),
-			OccupiesUntil:  in.OccupiesUntil.UTC(),
-			HoldExpiresAt:  in.HoldExpiresAt,
-			Notes:          strings.TrimSpace(in.Notes),
-			Metadata:       mustJSON(in.Metadata),
-			CreatedBy:      strings.TrimSpace(in.CreatedBy),
-			ConfirmedAt:    in.ConfirmedAt,
-			CancelledAt:    in.CancelledAt,
-			ReminderSentAt: in.ReminderSentAt,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		}
-		if err := tx.Create(&row).Error; err != nil {
-			return err
-		}
-		out = toDomainBooking(row)
 		return nil
 	})
 	return out, err
+}
+
+func (r *Repository) CreateBooking(ctx context.Context, in schedulingdomain.Booking) (schedulingdomain.Booking, error) {
+	out, err := r.CreateBookings(ctx, []schedulingdomain.Booking{in})
+	if err != nil {
+		return schedulingdomain.Booking{}, err
+	}
+	if len(out) == 0 {
+		return schedulingdomain.Booking{}, nil
+	}
+	return out[0], nil
+}
+
+func (r *Repository) createBookingTx(tx *gorm.DB, in schedulingdomain.Booking) (schedulingdomain.Booking, error) {
+	if strings.TrimSpace(in.IdempotencyKey) != "" {
+		var existing schedulingmodels.BookingModel
+		err := tx.Where("org_id = ? AND idempotency_key = ?", in.OrgID, strings.TrimSpace(in.IdempotencyKey)).Take(&existing).Error
+		if err == nil {
+			return toDomainBooking(existing), nil
+		}
+		if err != nil && err != gorm.ErrRecordNotFound {
+			return schedulingdomain.Booking{}, err
+		}
+	}
+	if err := expireOverdueHoldsTx(tx, in.OrgID, in.ResourceID, in.OccupiesFrom, in.OccupiesUntil); err != nil {
+		return schedulingdomain.Booking{}, err
+	}
+	now := time.Now().UTC()
+	row := schedulingmodels.BookingModel{
+		ID:             in.ID,
+		OrgID:          in.OrgID,
+		BranchID:       in.BranchID,
+		ServiceID:      in.ServiceID,
+		ResourceID:     in.ResourceID,
+		PartyID:        in.PartyID,
+		Reference:      strings.TrimSpace(in.Reference),
+		CustomerName:   strings.TrimSpace(in.CustomerName),
+		CustomerPhone:  strings.TrimSpace(in.CustomerPhone),
+		CustomerEmail:  strings.TrimSpace(in.CustomerEmail),
+		Status:         string(in.Status),
+		Source:         string(in.Source),
+		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+		StartAt:        in.StartAt.UTC(),
+		EndAt:          in.EndAt.UTC(),
+		OccupiesFrom:   in.OccupiesFrom.UTC(),
+		OccupiesUntil:  in.OccupiesUntil.UTC(),
+		HoldExpiresAt:  in.HoldExpiresAt,
+		Notes:          strings.TrimSpace(in.Notes),
+		Metadata:       mustJSON(in.Metadata),
+		CreatedBy:      strings.TrimSpace(in.CreatedBy),
+		ConfirmedAt:    in.ConfirmedAt,
+		CancelledAt:    in.CancelledAt,
+		ReminderSentAt: in.ReminderSentAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := tx.Create(&row).Error; err != nil {
+		return schedulingdomain.Booking{}, err
+	}
+	return toDomainBooking(row), nil
 }
 
 func (r *Repository) GetBookingByID(ctx context.Context, orgID, bookingID uuid.UUID) (schedulingdomain.Booking, error) {
@@ -1216,6 +1237,7 @@ func toDomainService(row schedulingmodels.ServiceModel, resourceIDs []uuid.UUID)
 	return schedulingdomain.Service{
 		ID:                     row.ID,
 		OrgID:                  row.OrgID,
+		CommercialServiceID:    row.CommercialServiceID,
 		Code:                   row.Code,
 		Name:                   row.Name,
 		Description:            row.Description,

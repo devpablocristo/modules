@@ -141,6 +141,7 @@ type Branch struct {
 type Service struct {
 	ID                     uuid.UUID       `json:"id"`
 	OrgID                  uuid.UUID       `json:"org_id"`
+	CommercialServiceID    *uuid.UUID      `json:"commercial_service_id,omitempty"`
 	Code                   string          `json:"code"`
 	Name                   string          `json:"name"`
 	Description            string          `json:"description"`
@@ -377,6 +378,14 @@ type ListBookingsFilter struct {
 	Limit    int
 }
 
+type BookingRecurrence struct {
+	Freq      string     `json:"freq"`
+	Interval  int        `json:"interval,omitempty"`
+	Count     int        `json:"count,omitempty"`
+	Until     *time.Time `json:"until,omitempty"`
+	ByWeekday []int      `json:"by_weekday,omitempty"`
+}
+
 type CreateBookingInput struct {
 	BranchID       uuid.UUID
 	ServiceID      uuid.UUID
@@ -392,6 +401,7 @@ type CreateBookingInput struct {
 	Notes          string
 	HoldUntil      *time.Time
 	Metadata       map[string]any
+	Recurrence     *BookingRecurrence
 }
 
 type RescheduleBookingInput struct {

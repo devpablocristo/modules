@@ -114,8 +114,8 @@ describe('PublicSchedulingFlow', () => {
 
     renderFlow(client);
 
-    expect(await screen.findByText('El scheduling publico esta deshabilitado')).toBeTruthy();
-    expect(screen.getByText('Activa turnos para esta organizacion para exponer el flujo publico.')).toBeTruthy();
+    expect(await screen.findByText('La agenda pública está deshabilitada')).toBeTruthy();
+    expect(screen.getByText('Activá la agenda de esta organización para exponer el flujo público.')).toBeTruthy();
   });
 
   it('books the selected slot with the canonical public payload', async () => {
@@ -144,5 +144,48 @@ describe('PublicSchedulingFlow', () => {
       });
     });
     expect(await screen.findByText('Reserva creada')).toBeTruthy();
+  });
+
+  it('keeps spanish copy when using a regional spanish locale', async () => {
+    const client = createClient();
+
+    renderFlow(client, { locale: 'es-AR' });
+
+    expect(await screen.findByRole('button', { name: /Elegir slot/i })).toBeTruthy();
+    expect(screen.getByText(/abr/i)).toBeTruthy();
+  });
+
+  it('localizes booking action buttons when using english regional locales', async () => {
+    const client = createClient({
+      listMyBookings: vi.fn(async () => [
+        {
+          id: 'booking-1',
+          party_name: 'Ada Lovelace',
+          party_phone: '+54 381 555 0202',
+          title: 'Initial consult',
+          status: 'pending_confirmation',
+          start_at: '2099-04-05T10:00:00Z',
+          end_at: '2099-04-05T10:30:00Z',
+          duration: 30,
+          actions: {
+            confirm_token: 'confirm-token',
+            cancel_token: 'cancel-token',
+          },
+        },
+      ]),
+    });
+
+    renderFlow(client, { locale: 'en-US' });
+
+    const lookupPhoneInput = await screen.findByLabelText('Phone', {
+      selector: 'input#public-scheduling-bookings-phone',
+    });
+    fireEvent.change(lookupPhoneInput, {
+      target: { value: '+54 381 555 0202' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Find bookings' }));
+
+    expect(await screen.findByRole('button', { name: 'Confirm' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
   });
 });

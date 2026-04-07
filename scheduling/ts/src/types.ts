@@ -7,6 +7,7 @@ export type SchedulingTransport = <T>(path: string, options?: SchedulingRequestO
 
 export type FulfillmentMode = 'schedule' | 'queue' | 'hybrid';
 export type ResourceKind = 'professional' | 'desk' | 'counter' | 'box' | 'room' | 'generic';
+export type AvailabilityRuleKind = 'branch' | 'resource';
 export type BookingStatus =
   | 'hold'
   | 'pending_confirmation'
@@ -74,6 +75,24 @@ export type Resource = {
   updated_at: string;
 };
 
+export type AvailabilityRule = {
+  id: string;
+  org_id: string;
+  branch_id: string;
+  resource_id?: string | null;
+  kind: AvailabilityRuleKind;
+  weekday: number;
+  start_time: string;
+  end_time: string;
+  slot_granularity_minutes?: number | null;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  active: boolean;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type TimeSlot = {
   resource_id: string;
   resource_name: string;
@@ -114,6 +133,24 @@ export type Booking = {
   reminder_sent_at?: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type CalendarEventKind = 'booking';
+export type CalendarEventSourceType = 'booking';
+
+export type CalendarEvent = {
+  id: string;
+  kind: CalendarEventKind;
+  sourceId: string;
+  sourceType: CalendarEventSourceType;
+  title: string;
+  start_at: string;
+  end_at: string;
+  color: string;
+  status: BookingStatus;
+  serviceName?: string;
+  resourceName?: string;
+  sourceBooking: Booking;
 };
 
 export type DashboardStats = {
@@ -229,6 +266,14 @@ export type SlotQuery = {
   resourceId?: string | null;
 };
 
+export type BookingRecurrence = {
+  freq: 'daily' | 'weekly' | 'monthly';
+  interval?: number;
+  count?: number;
+  until?: string;
+  by_weekday?: number[];
+};
+
 export type CreateBookingPayload = {
   branch_id: string;
   service_id: string;
@@ -244,6 +289,7 @@ export type CreateBookingPayload = {
   hold_until?: string;
   notes?: string;
   metadata?: Record<string, unknown>;
+  recurrence?: BookingRecurrence;
 };
 
 export type RescheduleBookingPayload = {
@@ -417,6 +463,7 @@ export type QueueOperatorBoardCopy = {
   queueMetricsServing: string;
   queueMetricsDone: string;
   confirmDangerTitle: string;
+  dismissConfirm: string;
   confirmCancelDescription: string;
   confirmNoShowDescription: string;
   closeQueueDescription: string;
@@ -461,6 +508,9 @@ export type PublicSchedulingFlowCopy = {
   loading: string;
   bookingCreatedTitle: string;
   queueCreatedTitle: string;
+  confirmBooking: string;
+  cancelBooking: string;
+  cancelBookingReason: string;
   statuses: Record<string, string>;
 };
 
@@ -489,10 +539,27 @@ export type SchedulingCalendarCopy = {
   timelineTitle: string;
   timelineDescription: string;
   openBooking: string;
+  titleLabel: string;
+  repeatLabel: string;
+  repeatNever: string;
+  repeatDaily: string;
+  repeatWeekly: string;
+  repeatMonthly: string;
+  repeatCustom: string;
+  repeatFrequencyLabel: string;
+  repeatIntervalLabel: string;
+  repeatCountLabel: string;
+  repeatWeekdaysLabel: string;
   bookingTitleCreate: string;
   bookingTitleDetails: string;
   bookingSubtitleCreate: string;
   bookingSubtitleDetails: string;
+  availableSlotLabel: string;
+  availableSlotHint: string;
+  availableSlotLoading: string;
+  unavailableSlotMessage: string;
+  slotSummaryTitle: string;
+  bookingPreviewTitle: string;
   customerNameLabel: string;
   customerPhoneLabel: string;
   customerEmailLabel: string;
@@ -501,6 +568,12 @@ export type SchedulingCalendarCopy = {
   serviceNameLabel: string;
   resourceNameLabel: string;
   slotLabel: string;
+  slotStartLabel: string;
+  slotEndLabel: string;
+  durationLabel: string;
+  timezoneLabel: string;
+  occupiesLabel: string;
+  conflictLabel: string;
   slotRemainingLabel: string;
   referenceLabel: string;
   close: string;
@@ -522,6 +595,7 @@ export type SchedulingCalendarCopy = {
   closeDirtyDescription: string;
   keepEditing: string;
   discard: string;
+  resizeLockedMessage: string;
   searchPlaceholder: string;
   statuses: SchedulingCalendarStatusCopy;
 };

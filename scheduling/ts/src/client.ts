@@ -1,4 +1,5 @@
 import type {
+  AvailabilityRule,
   Booking,
   Branch,
   CreateBookingPayload,
@@ -61,6 +62,11 @@ export function createSchedulingClient(request: SchedulingTransport) {
       return request<{ items: Resource[] }>(`/v1/scheduling/resources${queryString({ branch_id: branchId })}`).then(
         (response) => response.items ?? [],
       );
+    },
+    listAvailabilityRules(branchId?: string | null, resourceId?: string | null) {
+      return request<{ items: AvailabilityRule[] }>(
+        `/v1/scheduling/availability-rules${queryString({ branch_id: branchId, resource_id: resourceId })}`,
+      ).then((response) => response.items ?? []);
     },
     listSlots(query: SlotQuery) {
       return request<{ items: TimeSlot[] }>(

@@ -10,6 +10,7 @@ type CreateBranchRequest struct {
 }
 
 type CreateServiceRequest struct {
+	CommercialServiceID    *string        `json:"commercial_service_id,omitempty"`
 	Code                   string         `json:"code"`
 	Name                   string         `json:"name"`
 	Description            string         `json:"description"`
@@ -63,20 +64,29 @@ type CreateBlockedRangeRequest struct {
 }
 
 type CreateBookingRequest struct {
-	BranchID       string         `json:"branch_id"`
-	ServiceID      string         `json:"service_id"`
-	ResourceID     *string        `json:"resource_id,omitempty"`
-	PartyID        *string        `json:"party_id,omitempty"`
-	CustomerName   string         `json:"customer_name"`
-	CustomerPhone  string         `json:"customer_phone"`
-	CustomerEmail  string         `json:"customer_email,omitempty"`
-	StartAt        string         `json:"start_at"`
-	Status         string         `json:"status,omitempty"`
-	Source         string         `json:"source,omitempty"`
-	IdempotencyKey string         `json:"idempotency_key,omitempty"`
-	HoldUntil      *string        `json:"hold_until,omitempty"`
-	Notes          string         `json:"notes,omitempty"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
+	BranchID       string                    `json:"branch_id"`
+	ServiceID      string                    `json:"service_id"`
+	ResourceID     *string                   `json:"resource_id,omitempty"`
+	PartyID        *string                   `json:"party_id,omitempty"`
+	CustomerName   string                    `json:"customer_name"`
+	CustomerPhone  string                    `json:"customer_phone"`
+	CustomerEmail  string                    `json:"customer_email,omitempty"`
+	StartAt        string                    `json:"start_at"`
+	Status         string                    `json:"status,omitempty"`
+	Source         string                    `json:"source,omitempty"`
+	IdempotencyKey string                    `json:"idempotency_key,omitempty"`
+	HoldUntil      *string                   `json:"hold_until,omitempty"`
+	Notes          string                    `json:"notes,omitempty"`
+	Metadata       map[string]any            `json:"metadata,omitempty"`
+	Recurrence     *BookingRecurrenceRequest `json:"recurrence,omitempty"`
+}
+
+type BookingRecurrenceRequest struct {
+	Freq      string `json:"freq"`
+	Interval  int    `json:"interval,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	Until     string `json:"until,omitempty"`
+	ByWeekday []int  `json:"by_weekday,omitempty"`
 }
 
 type RescheduleBookingRequest struct {

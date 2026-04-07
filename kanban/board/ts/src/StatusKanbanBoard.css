@@ -70,7 +70,7 @@
 
 .m-kanban__column-shell {
   flex: 1 1 0;
-  min-width: 0;
+  min-width: 220px;
   max-width: 100%;
   scroll-snap-align: start;
   max-height: min(78vh, 820px);
@@ -97,6 +97,14 @@
     background 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease;
+}
+
+/* Placeholder Trello-style: rectángulo vacío del tamaño de la card donde caerá */
+.m-kanban__drop-placeholder {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 /* Columna sin drop (p. ej. cerradas): se distingue sutilmente del flujo operativo */
@@ -207,18 +215,6 @@
   opacity: 0.94;
 }
 
-.m-kanban__drop-hint {
-  flex-shrink: 0;
-  margin-bottom: 6px;
-  padding: var(--space-4, 1rem);
-  text-align: center;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--kb-accent-blue);
-  border: 2px dashed rgba(87, 157, 255, 0.4);
-  border-radius: 8px;
-  background: rgba(87, 157, 255, 0.08);
-}
 
 .m-kanban__column-add {
   flex-shrink: 0;
@@ -261,12 +257,16 @@
   border-radius: 8px;
   padding: 0.65rem 0.75rem;
   cursor: grab;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.32);
+  box-shadow: none;
   touch-action: none;
   color: var(--kb-text);
   user-select: none;
   -webkit-user-drag: none;
   min-width: 0;
+}
+
+.m-kanban__card:hover {
+  background: color-mix(in srgb, var(--kb-card-bg) 85%, white);
 }
 
 .m-kanban__card:active {

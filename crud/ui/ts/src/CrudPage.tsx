@@ -7,7 +7,7 @@
  * Shell de layout: `core/browser/ts`. Orquestación CRUD: `modules/crud/ui/ts`.
  */
 import { FormEvent, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
-import { CrudPageShell, parseListItemsFromResponse } from "@devpablocristo/core-browser/crud";
+import { CrudPageShell, parsePaginatedResponse } from "@devpablocristo/core-browser/crud";
 import { search as fuzzySearch, type SearchEntry } from "@devpablocristo/core-browser/search";
 import { crudItemPath, crudListPath } from "./restPaths";
 import { interpolate, mergeCrudStrings, type CrudStrings, defaultCrudStrings } from "./strings";
@@ -96,6 +96,9 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
 
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [internalSearch, setInternalSearch] = useState("");
   const search = externalSearch ?? internalSearch;
@@ -132,51 +135,66 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const showForm = (creating || (editing !== null && !onExternalEdit)) && formFields.length > 0;
   const hardDeleteWord = str.confirmWord;
 
+  const defaultPageSize = 100;
+
+  function buildListPath(cursor?: string): string {
+    let path = crudListPath(basePath!, showArchived && supportsArchived);
+    const params: string[] = [];
+    if (listQuery) params.push(listQuery);
+    params.push(`limit=${defaultPageSize}`);
+    if (cursor) params.push(`after=${cursor}`);
+    if (params.length > 0) {
+      path = path.includes("?") ? `${path}&${params.join("&")}` : `${path}?${params.join("&")}`;
+    }
+    return path;
+  }
+
   async function loadItems(): Promise<void> {
     const seq = ++loadSeqRef.current;
     setLoading(true);
     setError("");
+    setHasMore(false);
+    setNextCursor(null);
     try {
       if (dataSource?.list) {
         const rows = await dataSource.list({ archived: showArchived });
-        if (seq !== loadSeqRef.current) {
-          return;
-        }
+        if (seq !== loadSeqRef.current) return;
         setItems(rows);
         return;
       }
-      if (!basePath) {
-        if (seq !== loadSeqRef.current) {
-          return;
-        }
-        setItems([]);
-        return;
-      }
-      if (!httpClient) {
-        if (seq !== loadSeqRef.current) {
-          return;
-        }
+      if (!basePath || !httpClient) {
+        if (seq !== loadSeqRef.current) return;
+        if (!basePath) { setItems([]); return; }
         setError("CrudPage: basePath requires httpClient or dataSource.list");
         setItems([]);
         return;
       }
-      let path = crudListPath(basePath, showArchived && supportsArchived);
-      if (listQuery && path) {
-        path = path.includes("?") ? `${path}&${listQuery}` : `${path}?${listQuery}`;
-      }
-      const data = await httpClient.json<{ items?: T[] | null } | T[]>(path);
-      if (seq !== loadSeqRef.current) {
-        return;
-      }
-      setItems(parseListItemsFromResponse(data));
+      const data = await httpClient.json<unknown>(buildListPath());
+      if (seq !== loadSeqRef.current) return;
+      const page = parsePaginatedResponse<T>(data);
+      setItems(page.items);
+      setHasMore(page.hasMore);
+      setNextCursor(page.nextCursor || null);
     } catch (err) {
-      if (seq === loadSeqRef.current) {
-        setError(normalizeError(err));
-      }
+      if (seq === loadSeqRef.current) setError(normalizeError(err));
     } finally {
-      if (seq === loadSeqRef.current) {
-        setLoading(false);
-      }
+      if (seq === loadSeqRef.current) setLoading(false);
+    }
+  }
+
+  async function loadMore(): Promise<void> {
+    if (!basePath || !httpClient || !nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const data = await httpClient.json<unknown>(buildListPath(nextCursor));
+      const page = parsePaginatedResponse<T>(data);
+      setItems((prev) => [...prev, ...page.items]);
+      setHasMore(page.hasMore);
+      setNextCursor(page.nextCursor || null);
+    } catch (err) {
+      setError(normalizeError(err));
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -645,6 +663,18 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
               })}
             </tbody>
           </table>
+          {hasMore && (
+            <div className="crud-load-more">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={loadingMore}
+                onClick={() => { void loadMore(); }}
+              >
+                {loadingMore ? str.statusLoading : str.loadMore}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </CrudPageShell>

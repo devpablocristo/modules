@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./styles.css": "./src/styles.css"
+    "./next": "./src/next.ts",
+    "./styles.css": "./src/styles.css",
+    "./styles.next.css": "./src/styles.next.css"
   },
   "peerDependencies": {
     "@devpablocristo/core-browser": "^0.2.0",

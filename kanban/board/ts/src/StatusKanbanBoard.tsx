@@ -11,11 +11,12 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { CrudPageShell } from "@devpablocristo/core-browser/crud";
-import { useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { kanbanCollisionDetection } from "./collision";
 import "./StatusKanbanBoard.css";
 
@@ -32,9 +33,12 @@ export type StatusKanbanBoardProps<T extends { id: string }> = {
   items: T[];
   loading: boolean;
   error: string | null;
-  /** Recarga manual (p. ej. tras error); si no se pasa, no hay botón en la barra. */
   onReload?: () => void | Promise<void>;
-  onMoveCard: (id: string, targetColumnId: string) => void;
+  /**
+   * Mover tarjeta a otra columna o reordenar dentro de la misma.
+   * overItemId: id de la tarjeta sobre/antes de la que se soltó.
+   */
+  onMoveCard: (id: string, targetColumnId: string, overItemId?: string) => void;
   resolveDropColumnId: (overId: string | undefined, items: T[]) => string | null;
   sortInColumn?: (a: T, b: T) => number;
   filterRow?: (row: T, queryLower: string) => boolean;
@@ -52,19 +56,15 @@ export type StatusKanbanBoardProps<T extends { id: string }> = {
   statsLine: (visibleCount: number, totalCount: number) => string;
   emptyState?: ReactNode;
   columnFooter?: (columnId: string) => ReactNode;
-  /** Si devuelve false, la tarjeta no se arrastra (p. ej. estados terminales). Por defecto todas draggable. */
   isRowDraggable?: (row: T) => boolean;
-  /** Si devuelve false, la columna no acepta soltar (p. ej. columna solo lectura). Por defecto todas droppable. */
   isColumnDroppable?: (columnId: string) => boolean;
-  /** Clase extra para el input de búsqueda canónico. */
   searchInputClassName?: string;
-  /** Contenido entre la línea de estadísticas y el tablero (p. ej. filtros por persona). */
   afterStats?: ReactNode;
-  /** Fila bajo el buscador en la columna derecha (p. ej. mismas acciones que el listado CRUD). */
   toolbarButtonRow?: ReactNode;
-  /** Búsqueda controlada desde afuera. Si está definido, oculta el input interno. */
   externalSearch?: string;
 };
+
+/* ─── Columna ─── */
 
 function ColumnBody({
   columnId,
@@ -74,6 +74,8 @@ function ColumnBody({
   droppable,
   children,
   footer,
+  showPlaceholder,
+  placeholderHeight,
 }: {
   columnId: string;
   label: string;
@@ -82,6 +84,8 @@ function ColumnBody({
   droppable: boolean;
   children: ReactNode;
   footer?: ReactNode;
+  showPlaceholder?: boolean;
+  placeholderHeight?: number;
 }) {
   const droppableId = `col-${columnId}`;
   const { setNodeRef, isOver } = useDroppable({ id: droppableId, disabled: !droppable });
@@ -100,12 +104,18 @@ function ColumnBody({
           </span>
         </div>
       </div>
-      <div className="m-kanban__column-scroll">{children}</div>
-      {droppable && boardDragging && count === 0 ? <div className="m-kanban__drop-hint">Soltar aquí</div> : null}
+      <div className="m-kanban__column-scroll">
+        {children}
+        {showPlaceholder ? (
+          <div className="m-kanban__drop-placeholder" style={{ height: placeholderHeight || 80 }} />
+        ) : null}
+      </div>
       {footer}
     </div>
   );
 }
+
+/* ─── Tarjeta ─── */
 
 function DraggableCard<T extends { id: string }>({
   row,
@@ -113,32 +123,63 @@ function DraggableCard<T extends { id: string }>({
   onCardOpen,
   suppressOpenRef,
   draggable,
+  onHeightCapture,
+  cardRefsMap,
 }: {
   row: T;
   renderCard: StatusKanbanBoardProps<T>["renderCard"];
   onCardOpen: (row: T) => void;
   suppressOpenRef: RefObject<SuppressCardOpen>;
   draggable: boolean;
+  onHeightCapture: (id: string, h: number) => void;
+  cardRefsMap: React.MutableRefObject<Map<string, HTMLDivElement>>;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: row.id,
     disabled: !draggable,
   });
-  const style = {
+  const { setNodeRef: setDropRef } = useDroppable({ id: row.id });
+  const localRef = useRef<HTMLDivElement>(null);
+  const measuredRef = useRef(false);
+
+  useEffect(() => {
+    if (localRef.current && !measuredRef.current) {
+      measuredRef.current = true;
+      onHeightCapture(row.id, localRef.current.getBoundingClientRect().height);
+    }
+  });
+
+  const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.35 : 1,
+    opacity: isDragging ? 0 : 1,
+    height: isDragging ? 0 : undefined,
+    overflow: isDragging ? "hidden" as const : undefined,
+    margin: isDragging ? 0 : undefined,
+    padding: isDragging ? 0 : undefined,
   };
   const handleOpen = () => {
     const s = suppressOpenRef.current;
     if (s != null && s.id === row.id && Date.now() < s.until) return;
     onCardOpen(row);
   };
+  const setRefs = (el: HTMLDivElement | null) => {
+    setDragRef(el);
+    setDropRef(el);
+    (localRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    if (el) {
+      cardRefsMap.current.set(row.id, el);
+    } else {
+      cardRefsMap.current.delete(row.id);
+    }
+  };
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes} draggable={false}>
+    <div ref={setRefs} style={style} {...listeners} {...attributes} draggable={false}>
       {renderCard({ row, onOpen: handleOpen, suppressOpenRef })}
     </div>
   );
 }
+
+/* ─── Board ─── */
 
 export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanBoardProps<T>): ReactElement {
   const {
@@ -178,10 +219,15 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
   const [internalSearch, setInternalSearch] = useState("");
   const search = externalSearch ?? internalSearch;
   const [activeDrag, setActiveDrag] = useState<T | null>(null);
+  const [dragHeight, setDragHeight] = useState(0);
+  const [overColId, setOverColId] = useState<string | null>(null);
+  const cardHeightsRef = useRef<Map<string, number>>(new Map());
+  const cardRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const itemsRef = useRef<T[]>([]);
   itemsRef.current = items;
   const suppressCardOpenRef = useRef<SuppressCardOpen>({ id: null, until: 0 });
   const activeDragIdRef = useRef<string | null>(null);
+  const lastPointerY = useRef(0);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -200,7 +246,6 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
     for (const col of columns) {
       map.set(col.id, []);
     }
-    const sortFn = sortInColumn ?? (() => 0);
     for (const row of filtered) {
       let c = getRowColumnId(row);
       if (!columnIdSet.has(c)) {
@@ -214,39 +259,122 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
         if (fb) fb.push(row);
       }
     }
-    for (const [, list] of map) {
-      list.sort(sortFn);
+    if (sortInColumn) {
+      for (const [, list] of map) {
+        list.sort(sortInColumn);
+      }
     }
     return map;
   }, [filtered, columns, columnIdSet, getRowColumnId, fallbackColumnId, sortInColumn]);
 
   const boardDragging = activeDrag != null;
 
+  /**
+   * Dado un targetColumnId y la posición Y del pointer, encontrar la tarjeta
+   * más cercana en esa columna y devolver su id. Usa rects DOM reales.
+   */
+  const findOverItemInColumn = useCallback((targetColId: string, pointerY: number, activeId: string): string | undefined => {
+    const colItems = byColumn.get(targetColId);
+    if (!colItems || colItems.length === 0) return undefined;
+
+    let closestId: string | undefined;
+    let closestDist = Infinity;
+
+    for (const item of colItems) {
+      if (item.id === activeId) continue;
+      const el = cardRefsMap.current.get(item.id);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.height === 0) continue; // collapsed
+      const centerY = rect.top + rect.height / 2;
+      const dist = Math.abs(pointerY - centerY);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestId = item.id;
+      }
+    }
+    return closestId;
+  }, [byColumn]);
+
   const handleDragStart = (e: DragStartEvent) => {
     const id = String(e.active.id);
     activeDragIdRef.current = id;
     setActiveDrag(itemsRef.current.find((x) => x.id === id) ?? null);
+    setDragHeight(cardHeightsRef.current.get(id) ?? e.active.rect.current.initial?.height ?? 80);
   };
 
+  const handleHeightCapture = useCallback((id: string, h: number) => {
+    cardHeightsRef.current.set(id, h);
+  }, []);
+
+  const handleDragOver = (e: DragOverEvent) => {
+    const overId = e.over?.id != null ? String(e.over.id) : undefined;
+    // Solo columnas en collision detection
+    if (overId?.startsWith("col-")) {
+      setOverColId(overId.slice(4));
+    } else {
+      setOverColId(null);
+    }
+  };
+
+  // Trackear posición del pointer durante el drag
+  useEffect(() => {
+    if (!boardDragging) return;
+    const handler = (e: PointerEvent) => {
+      lastPointerY.current = e.clientY;
+    };
+    window.addEventListener("pointermove", handler);
+    return () => window.removeEventListener("pointermove", handler);
+  }, [boardDragging]);
+
   const handleDragEnd = (e: DragEndEvent) => {
+    console.log('>>> handleDragEnd FIRED', { activeId: String(e.active.id), overId: e.over?.id ?? 'NULL' });
     suppressCardOpenRef.current = { id: String(e.active.id), until: Date.now() + 260 };
     activeDragIdRef.current = null;
     const { active, over } = e;
     setActiveDrag(null);
+    setOverColId(null);
+    setDragHeight(0);
+
     const id = String(active.id);
-    const snapshot = itemsRef.current;
-    const targetCol = resolveDropColumnId(over?.id != null ? String(over.id) : undefined, snapshot);
+    if (!over) { console.log('>>> NO OVER'); return; }
+    const overId = String(over.id);
+
+    // Resolver columna destino
+    let targetCol: string | null = null;
+    if (overId.startsWith("col-")) {
+      const colId = overId.slice(4);
+      targetCol = columnIdSet.has(colId) ? colId : null;
+    } else {
+      // over es una tarjeta — resolver su columna
+      targetCol = resolveDropColumnId(overId, itemsRef.current);
+    }
     if (!targetCol) return;
+
+    const snapshot = itemsRef.current;
     const row = snapshot.find((x) => x.id === id);
-    if (!row || getRowColumnId(row) === targetCol) return;
-    onMoveCard(id, targetCol);
+    if (!row) return;
+
+    // Determinar overItemId: la tarjeta más cercana al pointer en la columna destino
+    const overItemId = findOverItemInColumn(targetCol, lastPointerY.current, id);
+    const sameColumn = getRowColumnId(row) === targetCol;
+    const colItems = byColumn.get(targetCol);
+    console.log('>>> resolve', { targetCol, sameColumn, overItemId, pointerY: lastPointerY.current, colItemCount: colItems?.length, cardRefsCount: cardRefsMap.current.size });
+    if (sameColumn && !overItemId) { console.log('>>> SKIP: sameCol no overItem'); return; }
+    if (sameColumn && overItemId === id) { console.log('>>> SKIP: overItem === active'); return; }
+
+    console.log('>>> CALLING onMoveCard', { id, targetCol, overItemId });
+    onMoveCard(id, targetCol, overItemId);
   };
 
   const handleDragCancel = () => {
+    console.log('>>> handleDragCancel FIRED');
     const id = activeDragIdRef.current;
     if (id) suppressCardOpenRef.current = { id, until: Date.now() + 260 };
     activeDragIdRef.current = null;
     setActiveDrag(null);
+    setOverColId(null);
+    setDragHeight(0);
   };
 
   const totalVisible = filtered.length;
@@ -302,6 +430,7 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
             collisionDetection={kanbanCollisionDetection}
             autoScroll={false}
             onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}
           >
@@ -317,6 +446,8 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
                       boardDragging={boardDragging}
                       droppable={columnDroppable(col.id)}
                       footer={columnFooter?.(col.id)}
+                      showPlaceholder={overColId === col.id && activeDrag != null}
+                      placeholderHeight={dragHeight}
                     >
                       {columnItems.map((row) => (
                         <DraggableCard
@@ -326,6 +457,8 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
                           onCardOpen={onCardOpen}
                           suppressOpenRef={suppressCardOpenRef}
                           draggable={rowDraggable(row)}
+                          onHeightCapture={handleHeightCapture}
+                          cardRefsMap={cardRefsMap}
                         />
                       ))}
                     </ColumnBody>

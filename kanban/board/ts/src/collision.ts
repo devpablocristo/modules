@@ -5,15 +5,18 @@ import {
   type CollisionDetection,
 } from "@dnd-kit/core";
 
-/** Prioriza columna bajo el puntero; si no, intersección; último recurso esquinas (estilo Trello / dnd-kit). */
+/**
+ * Collision detection para kanban.
+ * Devuelve columnas y tarjetas — el handler resuelve la posición.
+ */
 export const kanbanCollisionDetection: CollisionDetection = (args) => {
-  const pointer = pointerWithin(args);
-  if (pointer.length > 0) {
-    return pointer;
-  }
-  const rect = rectIntersection(args);
-  if (rect.length > 0) {
-    return rect;
-  }
-  return closestCorners(args);
+  const activeId = args.active.id;
+
+  const pointer = pointerWithin(args).filter((c) => c.id !== activeId);
+  if (pointer.length > 0) return pointer;
+
+  const rect = rectIntersection(args).filter((c) => c.id !== activeId);
+  if (rect.length > 0) return rect;
+
+  return closestCorners(args).filter((c) => c.id !== activeId);
 };

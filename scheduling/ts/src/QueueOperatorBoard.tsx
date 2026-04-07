@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { confirmAction } from '@devpablocristo/core-browser';
 import type { SchedulingClient } from './client';
+import { resolveSchedulingCopyLocale } from './locale';
 import type {
   Branch,
   DayAgendaItem,
@@ -35,18 +36,18 @@ const queueKeys = {
 export const queueOperatorBoardCopyPresets: Record<'en' | 'es', QueueOperatorBoardCopy> = {
   en: {
     title: 'Virtual queues',
-    description: 'Operate live queues from the same scheduling workspace.',
+    description: 'Manage live queues from the same workspace.',
     branchLabel: 'Branch',
     dateLabel: 'Date',
     loading: 'Loading queues…',
     noQueues: 'No queues configured for this branch.',
-    issueTicketTitle: 'Issue ticket',
-    issueTicketDescription: 'Create a new walk-in or reception ticket.',
+    issueTicketTitle: 'Create ticket',
+    issueTicketDescription: 'Create a new reception or walk-in ticket.',
     customerNameLabel: 'Customer name',
     customerPhoneLabel: 'Phone',
     customerEmailLabel: 'Email',
     priorityLabel: 'Priority',
-    issueTicket: 'Issue ticket',
+    issueTicket: 'Create ticket',
     issuingTicket: 'Issuing…',
     callNext: 'Call next',
     pauseQueue: 'Pause queue',
@@ -62,16 +63,17 @@ export const queueOperatorBoardCopyPresets: Record<'en' | 'es', QueueOperatorBoa
     completeTicket: 'Complete',
     noShowTicket: 'No-show',
     cancelTicket: 'Cancel',
-    returnToWaiting: 'Return',
-    nextTicketTitle: 'Next attention lane',
+    returnToWaiting: 'Send back to waiting',
+    nextTicketTitle: 'Next in line',
     queueMetricsIssued: 'Issued',
     queueMetricsWaiting: 'Waiting',
     queueMetricsServing: 'Serving',
     queueMetricsDone: 'Done',
     confirmDangerTitle: 'Confirm action',
+    dismissConfirm: 'Cancel',
     confirmCancelDescription: 'This ticket will be removed from the active queue.',
     confirmNoShowDescription: 'This ticket will be marked as no-show.',
-    closeQueueDescription: 'The queue will stop accepting more attention flow until reopened.',
+    closeQueueDescription: 'This queue will stop receiving new customers until you reopen it.',
     statuses: {
       active: 'Active',
       paused: 'Paused',
@@ -86,7 +88,7 @@ export const queueOperatorBoardCopyPresets: Record<'en' | 'es', QueueOperatorBoa
   },
   es: {
     title: 'Colas virtuales',
-    description: 'Operá las colas activas desde el mismo espacio de scheduling.',
+    description: 'Operá las colas activas desde el mismo espacio de agenda.',
     branchLabel: 'Sucursal',
     dateLabel: 'Fecha',
     loading: 'Cargando colas…',
@@ -114,15 +116,16 @@ export const queueOperatorBoardCopyPresets: Record<'en' | 'es', QueueOperatorBoa
     noShowTicket: 'No-show',
     cancelTicket: 'Cancelar',
     returnToWaiting: 'Volver',
-    nextTicketTitle: 'Carril de atencion',
+    nextTicketTitle: 'Carril de atención',
     queueMetricsIssued: 'Emitidos',
     queueMetricsWaiting: 'Esperando',
     queueMetricsServing: 'Atendiendo',
     queueMetricsDone: 'Resueltos',
-    confirmDangerTitle: 'Confirmar accion',
-    confirmCancelDescription: 'Este ticket saldra de la cola activa.',
-    confirmNoShowDescription: 'Este ticket se marcara como no-show.',
-    closeQueueDescription: 'La cola dejara de recibir mas flujo hasta que la reabras.',
+    confirmDangerTitle: 'Confirmar acción',
+    dismissConfirm: 'Cancelar',
+    confirmCancelDescription: 'Este ticket saldrá de la cola activa.',
+    confirmNoShowDescription: 'Este ticket se marcará como no-show.',
+    closeQueueDescription: 'La cola dejará de recibir más flujo hasta que la reabras.',
     statuses: {
       active: 'Activa',
       paused: 'Pausada',
@@ -139,7 +142,7 @@ export const queueOperatorBoardCopyPresets: Record<'en' | 'es', QueueOperatorBoa
 
 export type QueueOperatorBoardProps = {
   client: SchedulingClient;
-  locale?: 'en' | 'es';
+  locale?: string;
   copy?: Partial<QueueOperatorBoardCopy>;
   searchQuery?: string;
   initialBranchId?: string;
@@ -217,7 +220,7 @@ export function QueueOperatorBoard({
   initialDate,
   className = '',
 }: QueueOperatorBoardProps) {
-  const copy = { ...queueOperatorBoardCopyPresets[locale], ...copyOverrides };
+  const copy = { ...queueOperatorBoardCopyPresets[resolveSchedulingCopyLocale(locale)], ...copyOverrides };
   const queryClient = useQueryClient();
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(initialBranchId ?? null);
   const [selectedDate, setSelectedDate] = useState(initialDate ?? toDateInputValue(new Date()));
@@ -358,7 +361,7 @@ export function QueueOperatorBoard({
         title: copy.confirmDangerTitle,
         description: copy.closeQueueDescription,
         confirmLabel: copy.closeQueue,
-        cancelLabel: copy.reopenQueue,
+        cancelLabel: copy.dismissConfirm,
         tone: 'danger',
       });
       if (!confirmed) {
@@ -378,7 +381,7 @@ export function QueueOperatorBoard({
         title: copy.confirmDangerTitle,
         description: action === 'cancel' ? copy.confirmCancelDescription : copy.confirmNoShowDescription,
         confirmLabel: action === 'cancel' ? copy.cancelTicket : copy.noShowTicket,
-        cancelLabel: copy.returnToWaiting,
+        cancelLabel: copy.dismissConfirm,
         tone: 'danger',
       });
       if (!confirmed) {

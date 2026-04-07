@@ -115,4 +115,55 @@ func TestGenerateSlotsForResourceAppliesIntersectionAndBlocks(t *testing.T) {
 	}
 }
 
+func TestExpandRecurringBookingStartsWeekly(t *testing.T) {
+	t.Parallel()
+
+	loc, err := time.LoadLocation("America/Argentina/Tucuman")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	startAt := time.Date(2026, 4, 6, 10, 0, 0, 0, loc) // Monday
+
+	items, err := expandRecurringBookingStarts(startAt.UTC(), &schedulingdomain.BookingRecurrence{
+		Freq:      "weekly",
+		Interval:  1,
+		Count:     4,
+		ByWeekday: []int{1, 3},
+	}, "America/Argentina/Tucuman")
+	if err != nil {
+		t.Fatalf("expand recurring weekly: %v", err)
+	}
+	if len(items) != 4 {
+		t.Fatalf("expected 4 occurrences, got %d", len(items))
+	}
+
+	got := []string{
+		items[0].In(loc).Format("2006-01-02 15:04"),
+		items[1].In(loc).Format("2006-01-02 15:04"),
+		items[2].In(loc).Format("2006-01-02 15:04"),
+		items[3].In(loc).Format("2006-01-02 15:04"),
+	}
+	want := []string{
+		"2026-04-06 10:00",
+		"2026-04-08 10:00",
+		"2026-04-13 10:00",
+		"2026-04-15 10:00",
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("occurrence %d = %s, want %s", index, got[index], want[index])
+		}
+	}
+}
+
+func TestAddMonthsPreservingDayClampsToMonthEnd(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 1, 31, 9, 30, 0, 0, time.UTC)
+	got := addMonthsPreservingDay(base, 1)
+	if got.Format("2006-01-02 15:04") != "2026-02-28 09:30" {
+		t.Fatalf("addMonthsPreservingDay() = %s, want %s", got.Format("2006-01-02 15:04"), "2026-02-28 09:30")
+	}
+}
+
 func intPtr(v int) *int { return &v }

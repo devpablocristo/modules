@@ -33,6 +33,7 @@ export type CrudStrings = {
   confirmHint: string;
   confirmPlaceholder: string;
   confirmWord: string;
+  loadMore: string;
 };
 
 export const defaultCrudStrings: CrudStrings = {
@@ -61,6 +62,7 @@ export const defaultCrudStrings: CrudStrings = {
   confirmHint: "Type {{word}} to confirm.",
   confirmPlaceholder: "Confirmation word",
   confirmWord: "delete",
+  loadMore: "Load more",
 };
 
 export const crudStringsEs: CrudStrings = {
@@ -89,6 +91,7 @@ export const crudStringsEs: CrudStrings = {
   confirmHint: "Escribí {{word}} para confirmar.",
   confirmPlaceholder: "Palabra de confirmación",
   confirmWord: "eliminar",
+  loadMore: "Cargar más",
 };
 
 export function mergeCrudStrings(base: CrudStrings, partial?: Partial<CrudStrings>): CrudStrings {

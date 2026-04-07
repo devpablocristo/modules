@@ -47,6 +47,7 @@ type RepositoryPort interface {
 	ListBlockedRangesBetween(ctx context.Context, orgID, branchID uuid.UUID, resourceID *uuid.UUID, startAt, endAt time.Time) ([]schedulingdomain.BlockedRange, error)
 	CreateBlockedRange(ctx context.Context, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
 	CountBookingOverlaps(ctx context.Context, orgID, resourceID uuid.UUID, occupiesFrom, occupiesUntil time.Time, excludeBookingID *uuid.UUID) (int64, error)
+	CreateBookings(ctx context.Context, in []schedulingdomain.Booking) ([]schedulingdomain.Booking, error)
 	CreateBooking(ctx context.Context, in schedulingdomain.Booking) (schedulingdomain.Booking, error)
 	GetBookingByID(ctx context.Context, orgID, bookingID uuid.UUID) (schedulingdomain.Booking, error)
 	ListBookings(ctx context.Context, orgID uuid.UUID, filter schedulingdomain.ListBookingsFilter) ([]schedulingdomain.Booking, error)
@@ -348,20 +349,6 @@ func (u *Usecases) CreateBooking(ctx context.Context, orgID uuid.UUID, actor str
 	if service.FulfillmentMode == schedulingdomain.FulfillmentModeQueue {
 		return schedulingdomain.Booking{}, domainerr.Validation("service is queue-only")
 	}
-	candidateSlots, err := u.listAvailableSlots(ctx, orgID, schedulingdomain.SlotQuery{
-		BranchID:   in.BranchID,
-		ServiceID:  in.ServiceID,
-		Date:       in.StartAt,
-		ResourceID: in.ResourceID,
-	})
-	if err != nil {
-		return schedulingdomain.Booking{}, err
-	}
-	matchingSlots := filterSlotsByStart(candidateSlots, in.StartAt.UTC(), in.ResourceID)
-	if len(matchingSlots) == 0 {
-		return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
-	}
-
 	status := in.Status
 	if status == "" {
 		status = defaultBookingStatus(in)
@@ -371,49 +358,313 @@ func (u *Usecases) CreateBooking(ctx context.Context, orgID uuid.UUID, actor str
 		return schedulingdomain.Booking{}, domainerr.Validation("invalid booking status")
 	}
 
-	for _, slot := range matchingSlots {
-		booking := schedulingdomain.Booking{
-			ID:             uuid.New(),
-			OrgID:          orgID,
-			BranchID:       branch.ID,
-			ServiceID:      service.ID,
-			ResourceID:     slot.ResourceID,
-			PartyID:        in.PartyID,
-			Reference:      buildBookingReference(slot.StartAt, service.Code),
-			CustomerName:   strings.TrimSpace(in.CustomerName),
-			CustomerPhone:  strings.TrimSpace(in.CustomerPhone),
-			CustomerEmail:  strings.TrimSpace(in.CustomerEmail),
-			Status:         status,
-			Source:         normalizeBookingSource(in.Source),
-			IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
-			StartAt:        slot.StartAt.UTC(),
-			EndAt:          slot.EndAt.UTC(),
-			OccupiesFrom:   slot.OccupiesFrom.UTC(),
-			OccupiesUntil:  slot.OccupiesUntil.UTC(),
-			HoldExpiresAt:  in.HoldUntil,
-			Notes:          strings.TrimSpace(in.Notes),
-			Metadata:       in.Metadata,
-			CreatedBy:      actor,
-		}
-		if booking.Source == "" {
-			booking.Source = schedulingdomain.BookingSourceAdmin
-		}
-		if booking.Status == schedulingdomain.BookingStatusConfirmed {
-			now := time.Now().UTC()
-			booking.ConfirmedAt = &now
-		}
-		out, err := u.repo.CreateBooking(ctx, booking)
-		if err == nil {
-			u.logAudit(ctx, orgID, actor, "scheduling.booking.created", "scheduling_booking", out.ID.String(), map[string]any{"service_id": out.ServiceID.String(), "resource_id": out.ResourceID.String(), "status": out.Status})
-			u.emitEvent(ctx, orgID, "scheduling.booking.created", map[string]any{"booking_id": out.ID.String(), "branch_id": out.BranchID.String(), "service_id": out.ServiceID.String()})
-			return out, nil
-		}
+	recurrence, err := normalizeBookingRecurrence(in.Recurrence, in.StartAt, branch.Timezone)
+	if err != nil {
+		return schedulingdomain.Booking{}, err
+	}
+	starts, err := expandRecurringBookingStarts(in.StartAt, recurrence, branch.Timezone)
+	if err != nil {
+		return schedulingdomain.Booking{}, err
+	}
+	bookingsToCreate, err := u.prepareBookingsForStarts(ctx, orgID, actor, branch, service, in, status, starts, recurrence)
+	if err != nil {
+		return schedulingdomain.Booking{}, err
+	}
+	if len(bookingsToCreate) == 0 {
+		return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
+	}
+	created, err := u.repo.CreateBookings(ctx, bookingsToCreate)
+	if err != nil {
 		if isBookingOverlapErr(err) {
+			return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
+		}
+		return schedulingdomain.Booking{}, mapRepoError(err, "booking", bookingsToCreate[0].ID)
+	}
+	for _, item := range created {
+		u.logAudit(ctx, orgID, actor, "scheduling.booking.created", "scheduling_booking", item.ID.String(), map[string]any{"service_id": item.ServiceID.String(), "resource_id": item.ResourceID.String(), "status": item.Status})
+		u.emitEvent(ctx, orgID, "scheduling.booking.created", map[string]any{"booking_id": item.ID.String(), "branch_id": item.BranchID.String(), "service_id": item.ServiceID.String()})
+	}
+	return created[0], nil
+}
+
+const maxRecurringBookingOccurrences = 60
+
+func (u *Usecases) prepareBookingsForStarts(
+	ctx context.Context,
+	orgID uuid.UUID,
+	actor string,
+	branch schedulingdomain.Branch,
+	service schedulingdomain.Service,
+	in schedulingdomain.CreateBookingInput,
+	status schedulingdomain.BookingStatus,
+	starts []time.Time,
+	recurrence *schedulingdomain.BookingRecurrence,
+) ([]schedulingdomain.Booking, error) {
+	seriesID := uuid.New()
+	out := make([]schedulingdomain.Booking, 0, len(starts))
+	for index, startAt := range starts {
+		candidateSlots, err := u.listAvailableSlots(ctx, orgID, schedulingdomain.SlotQuery{
+			BranchID:   in.BranchID,
+			ServiceID:  in.ServiceID,
+			Date:       startAt,
+			ResourceID: in.ResourceID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		matchingSlots := filterSlotsByStart(candidateSlots, startAt.UTC(), in.ResourceID)
+		if len(matchingSlots) == 0 {
+			return nil, domainerr.Conflict("slot not available")
+		}
+		metadata := cloneMetadata(in.Metadata)
+		idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
+		if recurrence != nil {
+			metadata = appendRecurrenceMetadata(metadata, seriesID, *recurrence, index, len(starts))
+			if idempotencyKey != "" {
+				idempotencyKey = fmt.Sprintf("%s#%02d", idempotencyKey, index+1)
+			}
+		}
+		out = append(out, buildBookingFromSlot(orgID, actor, branch, service, in, matchingSlots[0], status, idempotencyKey, metadata))
+	}
+	return out, nil
+}
+
+func buildBookingFromSlot(
+	orgID uuid.UUID,
+	actor string,
+	branch schedulingdomain.Branch,
+	service schedulingdomain.Service,
+	in schedulingdomain.CreateBookingInput,
+	slot schedulingdomain.TimeSlot,
+	status schedulingdomain.BookingStatus,
+	idempotencyKey string,
+	metadata map[string]any,
+) schedulingdomain.Booking {
+	booking := schedulingdomain.Booking{
+		ID:             uuid.New(),
+		OrgID:          orgID,
+		BranchID:       branch.ID,
+		ServiceID:      service.ID,
+		ResourceID:     slot.ResourceID,
+		PartyID:        in.PartyID,
+		Reference:      buildBookingReference(slot.StartAt, service.Code),
+		CustomerName:   strings.TrimSpace(in.CustomerName),
+		CustomerPhone:  strings.TrimSpace(in.CustomerPhone),
+		CustomerEmail:  strings.TrimSpace(in.CustomerEmail),
+		Status:         status,
+		Source:         normalizeBookingSource(in.Source),
+		IdempotencyKey: idempotencyKey,
+		StartAt:        slot.StartAt.UTC(),
+		EndAt:          slot.EndAt.UTC(),
+		OccupiesFrom:   slot.OccupiesFrom.UTC(),
+		OccupiesUntil:  slot.OccupiesUntil.UTC(),
+		HoldExpiresAt:  in.HoldUntil,
+		Notes:          strings.TrimSpace(in.Notes),
+		Metadata:       metadata,
+		CreatedBy:      actor,
+	}
+	if booking.Source == "" {
+		booking.Source = schedulingdomain.BookingSourceAdmin
+	}
+	if booking.Status == schedulingdomain.BookingStatusConfirmed {
+		now := time.Now().UTC()
+		booking.ConfirmedAt = &now
+	}
+	return booking
+}
+
+func normalizeBookingRecurrence(recurrence *schedulingdomain.BookingRecurrence, startAt time.Time, timezone string) (*schedulingdomain.BookingRecurrence, error) {
+	if recurrence == nil {
+		return nil, nil
+	}
+	freq := strings.ToLower(strings.TrimSpace(recurrence.Freq))
+	if freq != "daily" && freq != "weekly" && freq != "monthly" {
+		return nil, domainerr.Validation("invalid recurrence freq")
+	}
+	interval := recurrence.Interval
+	if interval <= 0 {
+		interval = 1
+	}
+	if interval > 365 {
+		return nil, domainerr.Validation("recurrence interval is too large")
+	}
+	count := recurrence.Count
+	if count <= 0 && recurrence.Until == nil {
+		return nil, domainerr.Validation("recurrence count or until is required")
+	}
+	if count > maxRecurringBookingOccurrences {
+		return nil, domainerr.Validation("recurrence count exceeds limit")
+	}
+	normalized := &schedulingdomain.BookingRecurrence{
+		Freq:     freq,
+		Interval: interval,
+		Count:    count,
+	}
+	if recurrence.Until != nil {
+		until := recurrence.Until.UTC()
+		if until.Before(startAt.UTC()) {
+			return nil, domainerr.Validation("recurrence until must be after start_at")
+		}
+		normalized.Until = &until
+	}
+	if freq == "weekly" {
+		weekdays := normalizeWeekdays(recurrence.ByWeekday)
+		if len(weekdays) == 0 {
+			loc := loadSchedulingLocation(timezone)
+			weekdays = []int{int(startAt.In(loc).Weekday())}
+		}
+		normalized.ByWeekday = weekdays
+	}
+	return normalized, nil
+}
+
+func expandRecurringBookingStarts(startAt time.Time, recurrence *schedulingdomain.BookingRecurrence, timezone string) ([]time.Time, error) {
+	if recurrence == nil {
+		return []time.Time{startAt.UTC()}, nil
+	}
+	loc := loadSchedulingLocation(timezone)
+	localStart := startAt.In(loc)
+	until := recurrence.Until
+	appendIfValid := func(items []time.Time, candidate time.Time) []time.Time {
+		if until != nil && candidate.UTC().After(until.UTC()) {
+			return items
+		}
+		return append(items, candidate.UTC())
+	}
+	starts := make([]time.Time, 0, maxRecurringBookingOccurrences)
+	switch recurrence.Freq {
+	case "daily":
+		for cursor := localStart; len(starts) < maxRecurringBookingOccurrences; cursor = cursor.AddDate(0, 0, recurrence.Interval) {
+			if until != nil && cursor.UTC().After(until.UTC()) {
+				break
+			}
+			starts = appendIfValid(starts, cursor)
+			if recurrence.Count > 0 && len(starts) >= recurrence.Count {
+				break
+			}
+		}
+	case "weekly":
+		weekdays := recurrence.ByWeekday
+		baseWeekStart := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, -int(localStart.Weekday()))
+		for week := 0; len(starts) < maxRecurringBookingOccurrences; week += recurrence.Interval {
+			weekBase := baseWeekStart.AddDate(0, 0, week*7)
+			produced := false
+			for _, weekday := range weekdays {
+				day := weekBase.AddDate(0, 0, weekday)
+				candidate := time.Date(day.Year(), day.Month(), day.Day(), localStart.Hour(), localStart.Minute(), localStart.Second(), localStart.Nanosecond(), loc)
+				if candidate.Before(localStart) {
+					continue
+				}
+				if until != nil && candidate.UTC().After(until.UTC()) {
+					continue
+				}
+				starts = append(starts, candidate.UTC())
+				produced = true
+				if recurrence.Count > 0 && len(starts) >= recurrence.Count {
+					break
+				}
+				if len(starts) >= maxRecurringBookingOccurrences {
+					break
+				}
+			}
+			if recurrence.Count > 0 && len(starts) >= recurrence.Count {
+				break
+			}
+			if until != nil && !produced && weekBase.After(until.In(loc)) {
+				break
+			}
+		}
+		sort.Slice(starts, func(i, j int) bool { return starts[i].Before(starts[j]) })
+	case "monthly":
+		for cursor := localStart; len(starts) < maxRecurringBookingOccurrences; cursor = addMonthsPreservingDay(cursor, recurrence.Interval) {
+			if until != nil && cursor.UTC().After(until.UTC()) {
+				break
+			}
+			starts = appendIfValid(starts, cursor)
+			if recurrence.Count > 0 && len(starts) >= recurrence.Count {
+				break
+			}
+		}
+	default:
+		return nil, domainerr.Validation("invalid recurrence freq")
+	}
+	if len(starts) == 0 {
+		return nil, domainerr.Validation("recurrence did not generate occurrences")
+	}
+	return starts, nil
+}
+
+func appendRecurrenceMetadata(
+	metadata map[string]any,
+	seriesID uuid.UUID,
+	recurrence schedulingdomain.BookingRecurrence,
+	index int,
+	total int,
+) map[string]any {
+	next := cloneMetadata(metadata)
+	recurrencePayload := map[string]any{
+		"series_id":        seriesID.String(),
+		"freq":             recurrence.Freq,
+		"interval":         recurrence.Interval,
+		"occurrence_index": index + 1,
+		"occurrence_count": total,
+	}
+	if recurrence.Count > 0 {
+		recurrencePayload["count"] = recurrence.Count
+	}
+	if recurrence.Until != nil {
+		recurrencePayload["until"] = recurrence.Until.UTC().Format(time.RFC3339)
+	}
+	if len(recurrence.ByWeekday) > 0 {
+		recurrencePayload["by_weekday"] = recurrence.ByWeekday
+	}
+	next["recurrence"] = recurrencePayload
+	return next
+}
+
+func cloneMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return map[string]any{}
+	}
+	next := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		next[key] = value
+	}
+	return next
+}
+
+func normalizeWeekdays(days []int) []int {
+	seen := make(map[int]struct{}, len(days))
+	out := make([]int, 0, len(days))
+	for _, day := range days {
+		if day < 0 || day > 6 {
 			continue
 		}
-		return schedulingdomain.Booking{}, mapRepoError(err, "booking", booking.ID)
+		if _, ok := seen[day]; ok {
+			continue
+		}
+		seen[day] = struct{}{}
+		out = append(out, day)
 	}
-	return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
+	sort.Ints(out)
+	return out
+}
+
+func loadSchedulingLocation(timezone string) *time.Location {
+	if loc, err := time.LoadLocation(strings.TrimSpace(timezone)); err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+func addMonthsPreservingDay(base time.Time, months int) time.Time {
+	targetMonth := time.Date(base.Year(), base.Month()+time.Month(months), 1, base.Hour(), base.Minute(), base.Second(), base.Nanosecond(), base.Location())
+	lastDay := time.Date(targetMonth.Year(), targetMonth.Month()+1, 0, base.Hour(), base.Minute(), base.Second(), base.Nanosecond(), base.Location()).Day()
+	day := base.Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(targetMonth.Year(), targetMonth.Month(), day, base.Hour(), base.Minute(), base.Second(), base.Nanosecond(), base.Location())
 }
 
 func (u *Usecases) CheckInBooking(ctx context.Context, orgID, bookingID uuid.UUID, actor string) (schedulingdomain.Booking, error) {

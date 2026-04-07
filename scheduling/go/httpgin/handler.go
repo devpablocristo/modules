@@ -191,7 +191,13 @@ func (h *Handler) CreateService(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource_ids"})
 		return
 	}
+	commercialServiceID, err := parseUUIDPtr(req.CommercialServiceID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid commercial_service_id"})
+		return
+	}
 	out, err := h.uc.CreateService(c.Request.Context(), orgID, authCtx.Actor, schedulingdomain.Service{
+		CommercialServiceID:    commercialServiceID,
 		Code:                   req.Code,
 		Name:                   req.Name,
 		Description:            req.Description,
@@ -540,6 +546,23 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid hold_until"})
 		return
 	}
+	var recurrence *schedulingdomain.BookingRecurrence
+	if req.Recurrence != nil {
+		recurrence = &schedulingdomain.BookingRecurrence{
+			Freq:      req.Recurrence.Freq,
+			Interval:  req.Recurrence.Interval,
+			Count:     req.Recurrence.Count,
+			ByWeekday: req.Recurrence.ByWeekday,
+		}
+		if strings.TrimSpace(req.Recurrence.Until) != "" {
+			until, err := parseRFC3339(req.Recurrence.Until)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid recurrence.until"})
+				return
+			}
+			recurrence.Until = &until
+		}
+	}
 	out, err := h.uc.CreateBooking(c.Request.Context(), orgID, authCtx.Actor, schedulingdomain.CreateBookingInput{
 		BranchID:       branchID,
 		ServiceID:      serviceID,
@@ -555,6 +578,7 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		HoldUntil:      holdUntil,
 		Notes:          req.Notes,
 		Metadata:       req.Metadata,
+		Recurrence:     recurrence,
 	})
 	if err != nil {
 		handlers.Respond(c, err)

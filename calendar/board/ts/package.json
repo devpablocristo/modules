@@ -5,12 +5,17 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./styles.css": "./src/styles.css"
+    "./legacy": "./src/legacy.ts",
+    "./next": "./src/next.ts",
+    "./styles.css": "./src/styles.css",
+    "./styles.legacy.css": "./src/styles.legacy.css",
+    "./styles.next.css": "./src/styles.next.css"
   },
   "peerDependencies": {
     "@fullcalendar/core": "^6.1.20",
     "@fullcalendar/daygrid": "^6.1.20",
     "@fullcalendar/interaction": "^6.1.20",
+    "@fullcalendar/list": "^6.1.20",
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/timegrid": "^6.1.20",
     "react": "^18.0.0 || ^19.0.0",
@@ -21,6 +26,7 @@
     "test": "vitest run --globals --passWithNoTests"
   },
   "devDependencies": {
+    "@fullcalendar/list": "^6.1.20",
     "@testing-library/react": "^14.3.1",
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.0",

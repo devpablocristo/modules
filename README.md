@@ -21,6 +21,9 @@ modules/
     data-display/ts → npm @devpablocristo/modules-ui-data-display
     filters/ts      → npm @devpablocristo/modules-ui-filters
     forms/ts        → npm @devpablocristo/modules-ui-forms
+    modal/ts        → npm @devpablocristo/modules-ui-modal
+    page-shell/ts   → npm @devpablocristo/modules-ui-page-shell
+    section-hub/ts  → npm @devpablocristo/modules-ui-section-hub
     notification-feed/ts → npm @devpablocristo/modules-ui-notification-feed
 ```
 
@@ -32,7 +35,7 @@ modules/
 - `kanban`: tablero por estados y drag and drop.
 - `scheduling`: bounded context reusable de agenda y cola virtual, montado encima de primitivas de scheduling en `core`.
 - `ui`: primitivas de interfaz genéricas que no pertenecen a CRUD ni a Kanban.
-  Incluye `notification-feed` para bandejas de avisos no-chat y entradas accionables.
+  Incluye `notification-feed` para bandejas de avisos no-chat, `page-shell` para shells de consola sobre `core-browser` + `modules-shell-sidebar`, `modal` para superficies/dialog shells reutilizables, `section-hub` para hubs de navegación por secciones, y entradas accionables.
 
 ## Referencias
 
@@ -61,6 +64,9 @@ La unidad de versionado es cada implementación concreta:
 - `ui/data-display/ts`
 - `ui/filters/ts`
 - `ui/forms/ts`
+- `ui/modal/ts`
+- `ui/page-shell/ts`
+- `ui/section-hub/ts`
 - `ui/notification-feed/ts`
 
 Cada una tiene su propio archivo `VERSION`.

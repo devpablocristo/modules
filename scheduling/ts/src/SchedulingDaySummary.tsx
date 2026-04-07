@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { SchedulingClient } from './client';
+import { formatSchedulingDateTime, resolveSchedulingCopyLocale } from './locale';
 import type { DashboardStats, DayAgendaItem } from './types';
 
 const summaryKeys = {
@@ -10,11 +11,11 @@ const summaryKeys = {
 
 export const schedulingDaySummaryCopyPresets = {
   en: {
-    title: 'Scheduling today',
-    description: 'Live bookings and queue movement for the current operation window.',
+    title: "Today's schedule",
+    description: 'Live bookings and queue activity for the current operating window.',
     dateLabel: 'Date',
-    loading: 'Loading scheduling snapshot…',
-    empty: 'No scheduling activity for this date.',
+    loading: 'Loading schedule snapshot…',
+    empty: 'No schedule activity for this date.',
     bookings: 'Bookings',
     confirmed: 'Confirmed',
     activeQueues: 'Queues',
@@ -23,49 +24,51 @@ export const schedulingDaySummaryCopyPresets = {
     queueFlow: 'Queue flow',
     noUpcoming: 'No upcoming bookings.',
     noQueueFlow: 'No queue tickets in the agenda.',
+    statuses: {
+      confirmed: 'Confirmed',
+      waiting: 'Waiting',
+      called: 'Called',
+      serving: 'Serving',
+      completed: 'Completed',
+      cancelled: 'Cancelled',
+      no_show: 'No-show',
+    },
   },
   es: {
-    title: 'Scheduling de hoy',
+    title: 'Agenda de hoy',
     description: 'Reservas activas y movimiento de cola en la ventana operativa actual.',
     dateLabel: 'Fecha',
-    loading: 'Cargando snapshot de scheduling…',
-    empty: 'No hay actividad de scheduling para esta fecha.',
+    loading: 'Cargando resumen de agenda…',
+    empty: 'No hay actividad en la agenda para esta fecha.',
     bookings: 'Reservas',
     confirmed: 'Confirmadas',
     activeQueues: 'Colas',
     waiting: 'Esperando',
-    nextBooking: 'Proxima reserva',
+    nextBooking: 'Próxima reserva',
     queueFlow: 'Flujo de cola',
-    noUpcoming: 'No hay reservas proximas.',
+    noUpcoming: 'No hay reservas próximas.',
     noQueueFlow: 'No hay tickets de cola en la agenda.',
+    statuses: {
+      confirmed: 'Confirmada',
+      waiting: 'Esperando',
+      called: 'Llamado',
+      serving: 'Atendiendo',
+      completed: 'Completado',
+      cancelled: 'Cancelado',
+      no_show: 'No-show',
+    },
   },
 } as const;
 
 export type SchedulingDaySummaryProps = {
   client: SchedulingClient;
-  locale?: 'en' | 'es';
+  locale?: string;
   className?: string;
   initialDate?: string;
 };
 
 function todayValue(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) {
-    return '—';
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(parsed);
 }
 
 function isUpcomingBooking(item: DayAgendaItem): boolean {
@@ -85,7 +88,8 @@ export function SchedulingDaySummary({
   className = '',
   initialDate,
 }: SchedulingDaySummaryProps) {
-  const copy = schedulingDaySummaryCopyPresets[locale];
+  const copy = schedulingDaySummaryCopyPresets[resolveSchedulingCopyLocale(locale)];
+  const statusLabel = (status: string) => copy.statuses[status as keyof typeof copy.statuses] ?? status;
   const [selectedDate, setSelectedDate] = useState(initialDate ?? todayValue());
 
   const dashboardQuery = useQuery<DashboardStats>({
@@ -158,8 +162,8 @@ export function SchedulingDaySummary({
               {nextBooking ? (
                 <div className="modules-scheduling__day-summary-item">
                   <strong>{nextBooking.label}</strong>
-                  <span>{formatDateTime(nextBooking.start_at)}</span>
-                  <span>{nextBooking.status}</span>
+                  <span>{formatSchedulingDateTime(nextBooking.start_at, locale)}</span>
+                  <span>{statusLabel(nextBooking.status)}</span>
                 </div>
               ) : (
                 <div className="modules-scheduling__queue-empty">{copy.noUpcoming}</div>
@@ -173,7 +177,7 @@ export function SchedulingDaySummary({
                 queueFlow.map((item) => (
                   <div key={item.id} className="modules-scheduling__day-summary-item">
                     <strong>{item.label}</strong>
-                    <span>{item.status}</span>
+                    <span>{statusLabel(item.status)}</span>
                   </div>
                 ))
               )}

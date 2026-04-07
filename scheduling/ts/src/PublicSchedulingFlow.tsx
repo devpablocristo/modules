@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PublicSchedulingClient } from './client';
+import { formatSchedulingDateTime, resolveSchedulingCopyLocale } from './locale';
 import type {
   PublicAvailabilitySlot,
   PublicBooking,
@@ -19,8 +20,8 @@ const publicKeys = {
 
 export const publicSchedulingFlowCopyPresets: Record<'en' | 'es', PublicSchedulingFlowCopy> = {
   en: {
-    title: 'Public scheduling',
-    description: 'Preview the customer-facing scheduling flow with the same public API contract.',
+    title: 'Public booking flow',
+    description: 'Preview the public booking flow using the same public API contract.',
     orgRefLabel: 'Organization reference',
     orgRefHelp: 'You can use the public slug or the organization UUID.',
     loadOrg: 'Load organization',
@@ -32,7 +33,7 @@ export const publicSchedulingFlowCopyPresets: Record<'en' | 'es', PublicScheduli
     emailLabel: 'Email',
     notesLabel: 'Notes',
     availabilityTitle: 'Availability',
-    availabilityDescription: 'Customers book directly from the public slot inventory.',
+    availabilityDescription: 'Customers book directly from available public slots.',
     availabilityEmpty: 'No public slots available for the selected date.',
     availabilityLoading: 'Loading availability…',
     selectSlot: 'Select slot',
@@ -40,24 +41,27 @@ export const publicSchedulingFlowCopyPresets: Record<'en' | 'es', PublicScheduli
     bookNow: 'Book now',
     booking: 'Booking…',
     myBookingsTitle: 'My bookings',
-    myBookingsDescription: 'Lookup the public booking history by phone number.',
+    myBookingsDescription: 'Look up public booking history by phone number.',
     findBookings: 'Find bookings',
     findingBookings: 'Searching…',
-    noBookings: 'No public bookings found for this phone number.',
+    noBookings: 'No public bookings found for that phone number.',
     queuesTitle: 'Remote queues',
-    queuesDescription: 'Customers can also join a virtual queue without entering the dashboard.',
+    queuesDescription: 'Customers can also join a virtual queue without opening the dashboard.',
     joinQueue: 'Join queue',
     joiningQueue: 'Joining…',
     etaLabel: 'ETA',
     positionLabel: 'Position',
     ticketCodeLabel: 'Ticket',
-    publicDisabledTitle: 'Public scheduling is disabled',
-    publicDisabledDescription: 'Enable appointments for this organization to expose the public booking flow.',
-    loading: 'Loading public scheduling…',
+    publicDisabledTitle: 'Public booking flow is disabled',
+    publicDisabledDescription: 'Enable the schedule for this organization to expose the public booking flow.',
+    loading: 'Loading public booking flow…',
     bookingCreatedTitle: 'Booking created',
-    queueCreatedTitle: 'Queue ticket issued',
+    queueCreatedTitle: 'Queue ticket created',
+    confirmBooking: 'Confirm',
+    cancelBooking: 'Cancel',
+    cancelBookingReason: 'Cancelled from public booking flow',
     statuses: {
-      hold: 'Hold',
+      hold: 'On hold',
       pending_confirmation: 'Pending confirmation',
       confirmed: 'Confirmed',
       checked_in: 'Checked in',
@@ -75,49 +79,52 @@ export const publicSchedulingFlowCopyPresets: Record<'en' | 'es', PublicScheduli
     },
   },
   es: {
-    title: 'Scheduling publico',
-    description: 'Vista previa del flujo publico de reservas con el mismo contrato de la API publica.',
-    orgRefLabel: 'Referencia de organizacion',
-    orgRefHelp: 'Puede ser el slug publico o el UUID de la organizacion.',
-    loadOrg: 'Cargar organizacion',
+    title: 'Reserva pública',
+    description: 'Vista previa del flujo público de reservas con el mismo contrato de la API pública.',
+    orgRefLabel: 'Referencia de organización',
+    orgRefHelp: 'Puede ser el slug público o el UUID de la organización.',
+    loadOrg: 'Cargar organización',
     businessInfoTitle: 'Perfil del negocio',
     serviceLabel: 'Servicio',
     dateLabel: 'Fecha',
-    phoneLabel: 'Telefono',
+    phoneLabel: 'Teléfono',
     nameLabel: 'Cliente',
     emailLabel: 'Email',
     notesLabel: 'Notas',
     availabilityTitle: 'Disponibilidad',
-    availabilityDescription: 'El cliente reserva directamente desde los slots publicos.',
-    availabilityEmpty: 'No hay slots publicos para la fecha seleccionada.',
+    availabilityDescription: 'El cliente reserva directamente desde los slots públicos.',
+    availabilityEmpty: 'No hay slots públicos para la fecha seleccionada.',
     availabilityLoading: 'Cargando disponibilidad…',
     selectSlot: 'Elegir slot',
     selectedSlotLabel: 'Slot elegido',
     bookNow: 'Reservar',
     booking: 'Reservando…',
     myBookingsTitle: 'Mis reservas',
-    myBookingsDescription: 'Consultar el historial publico por numero de telefono.',
+    myBookingsDescription: 'Consultar el historial público por número de teléfono.',
     findBookings: 'Buscar reservas',
     findingBookings: 'Buscando…',
-    noBookings: 'No hay reservas publicas para ese telefono.',
+    noBookings: 'No hay reservas públicas para ese teléfono.',
     queuesTitle: 'Colas remotas',
-    queuesDescription: 'El cliente tambien puede sumarse a una cola virtual sin entrar al dashboard.',
+    queuesDescription: 'El cliente también puede sumarse a una cola virtual sin entrar al dashboard.',
     joinQueue: 'Sumarme',
-    joiningQueue: 'Sumando…',
-    etaLabel: 'ETA',
-    positionLabel: 'Posicion',
+    joiningQueue: 'Uniéndome…',
+    etaLabel: 'Tiempo estimado',
+    positionLabel: 'Posición',
     ticketCodeLabel: 'Ticket',
-    publicDisabledTitle: 'El scheduling publico esta deshabilitado',
-    publicDisabledDescription: 'Activa turnos para esta organizacion para exponer el flujo publico.',
-    loading: 'Cargando scheduling publico…',
+    publicDisabledTitle: 'La agenda pública está deshabilitada',
+    publicDisabledDescription: 'Activá la agenda de esta organización para exponer el flujo público.',
+    loading: 'Cargando agenda pública…',
     bookingCreatedTitle: 'Reserva creada',
     queueCreatedTitle: 'Ticket emitido',
+    confirmBooking: 'Confirmar',
+    cancelBooking: 'Cancelar',
+    cancelBookingReason: 'Cancelada desde el flujo público',
     statuses: {
-      hold: 'Hold',
+      hold: 'En espera',
       pending_confirmation: 'Pendiente',
       confirmed: 'Confirmada',
       checked_in: 'Check-in',
-      in_service: 'En atencion',
+      in_service: 'En atención',
       completed: 'Completada',
       cancelled: 'Cancelada',
       no_show: 'No-show',
@@ -135,7 +142,7 @@ export const publicSchedulingFlowCopyPresets: Record<'en' | 'es', PublicScheduli
 export type PublicSchedulingFlowProps = {
   client: PublicSchedulingClient;
   orgRef: string;
-  locale?: 'en' | 'es';
+  locale?: string;
   copy?: Partial<PublicSchedulingFlowCopy>;
   className?: string;
 };
@@ -151,20 +158,6 @@ function todayValue(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(parsed);
-}
-
 function statusLabel(copy: PublicSchedulingFlowCopy, status: string): string {
   return copy.statuses[status] ?? status;
 }
@@ -176,7 +169,7 @@ export function PublicSchedulingFlow({
   copy: copyOverrides,
   className = '',
 }: PublicSchedulingFlowProps) {
-  const copy = { ...publicSchedulingFlowCopyPresets[locale], ...copyOverrides };
+  const copy = { ...publicSchedulingFlowCopyPresets[resolveSchedulingCopyLocale(locale)], ...copyOverrides };
   const queryClient = useQueryClient();
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState(todayValue());
@@ -285,7 +278,7 @@ export function PublicSchedulingFlow({
       if (action === 'confirm') {
         return client.confirmBooking(trimmedOrgRef, token);
       }
-      return client.cancelBooking(trimmedOrgRef, token, 'Cancelled from public preview');
+      return client.cancelBooking(trimmedOrgRef, token, copy.cancelBookingReason);
     },
     onMutate: () => setFeedback(null),
     onSuccess: async () => {
@@ -400,7 +393,7 @@ export function PublicSchedulingFlow({
                   }`}
                   onClick={() => setSelectedSlot(slot)}
                 >
-                  <strong>{formatDateTime(slot.start_at)}</strong>
+                  <strong>{formatSchedulingDateTime(slot.start_at, locale)}</strong>
                   <span>{copy.selectSlot}</span>
                 </button>
               ))}
@@ -413,7 +406,7 @@ export function PublicSchedulingFlow({
             <div>
               <h2>{selectedService?.name ?? copy.bookNow}</h2>
               <p className="text-secondary">
-                {copy.selectedSlotLabel}: {selectedSlot ? formatDateTime(selectedSlot.start_at) : '—'}
+                {copy.selectedSlotLabel}: {selectedSlot ? formatSchedulingDateTime(selectedSlot.start_at, locale) : '—'}
               </p>
             </div>
           </div>
@@ -504,7 +497,7 @@ export function PublicSchedulingFlow({
                     </span>
                   </div>
                   <div className="modules-scheduling__public-booking-meta">
-                    <span>{formatDateTime(booking.start_at)}</span>
+                    <span>{formatSchedulingDateTime(booking.start_at, locale)}</span>
                     <span>{booking.party_phone}</span>
                   </div>
                   {(booking.actions?.confirm_token || booking.actions?.cancel_token) ? (
@@ -516,7 +509,7 @@ export function PublicSchedulingFlow({
                           disabled={bookingActionMutation.isPending}
                           onClick={() => void bookingActionMutation.mutateAsync({ action: 'confirm', booking })}
                         >
-                          Confirmar
+                          {copy.confirmBooking}
                         </button>
                       ) : null}
                       {booking.actions?.cancel_token ? (
@@ -526,7 +519,7 @@ export function PublicSchedulingFlow({
                           disabled={bookingActionMutation.isPending}
                           onClick={() => void bookingActionMutation.mutateAsync({ action: 'cancel', booking })}
                         >
-                          Cancelar
+                          {copy.cancelBooking}
                         </button>
                       ) : null}
                     </div>

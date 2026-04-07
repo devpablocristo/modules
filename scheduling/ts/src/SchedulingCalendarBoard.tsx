@@ -1,30 +1,64 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { EventClickArg, EventInput } from '@fullcalendar/core';
-import type { DateClickArg } from '@fullcalendar/interaction';
+import type { EventClickArg, EventContentArg } from '@fullcalendar/core';
 import FullCalendar from '@fullcalendar/react';
 import { confirmAction } from '@devpablocristo/core-browser';
 import {
   CalendarSurface,
   resolveInitialTimeGridScrollTime,
+  resolveInitialTimeGridViewport,
+  type CalendarSurfaceProps,
   type CalendarView,
-} from '@devpablocristo/modules-calendar-board';
+} from '../../../calendar/board/ts/src/next';
 import type { SchedulingClient } from './client';
+import {
+  formatSchedulingClock,
+  formatSchedulingCompactClock,
+  resolveSchedulingCopyLocale,
+} from './locale';
 import {
   SchedulingBookingModal,
   type SchedulingBookingAction,
+  type SchedulingBookingCreateEditor,
   type SchedulingBookingDraft,
   type SchedulingBookingModalState,
 } from './SchedulingBookingModal';
-import type { Booking, BookingStatus, Branch, DashboardStats, Resource, SchedulingCalendarCopy, Service, TimeSlot } from './types';
+import {
+  buildFullCalendarEventInputs,
+  buildSchedulingCreateModalStateFromSlot,
+  buildSchedulingCreateModalStateFromStart,
+  buildSchedulingBusinessHours,
+  buildSchedulingCalendarEvents,
+  buildSchedulingDetailsModalState,
+  buildSlotIdentity,
+  resolveBookingDisplayTitle,
+  toDateInputValue as toDateInputValueFromIso,
+  toTimeInputValue,
+} from './schedulingCalendarLogic';
+import type {
+  AvailabilityRule,
+  Booking,
+  BookingStatus,
+  Branch,
+  CalendarEvent,
+  DashboardStats,
+  Resource,
+  SchedulingCalendarCopy,
+  Service,
+  TimeSlot,
+} from './types';
 
 const schedulingKeys = {
   branches: ['scheduling', 'branches'] as const,
   services: ['scheduling', 'services'] as const,
   resources: (branchId: string | null) => ['scheduling', 'resources', branchId ?? 'all'] as const,
+  availabilityRules: (branchId: string | null, resourceId: string | null) =>
+    ['scheduling', 'availability-rules', branchId ?? 'none', resourceId ?? 'any'] as const,
   dashboard: (branchId: string | null, day: string) => ['scheduling', 'dashboard', branchId ?? 'all', day] as const,
   slots: (branchId: string | null, serviceId: string | null, resourceId: string | null, day: string) =>
     ['scheduling', 'slots', branchId ?? 'none', serviceId ?? 'none', resourceId ?? 'any', day] as const,
+  visibleSlotsRange: (branchId: string | null, serviceId: string | null, resourceId: string | null, start: string, end: string) =>
+    ['scheduling', 'visible-slots-range', branchId ?? 'none', serviceId ?? 'none', resourceId ?? 'any', start, end] as const,
   bookingsRange: (branchId: string | null, start: string, end: string) =>
     ['scheduling', 'bookings-range', branchId ?? 'none', start, end] as const,
 };
@@ -35,8 +69,8 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     serviceLabel: 'Service',
     resourceLabel: 'Resource',
     anyResource: 'Any resource',
-    focusDateLabel: 'Focus date',
-    summaryTitle: 'Daily picture',
+    focusDateLabel: 'Date',
+    summaryTitle: 'Daily overview',
     summaryBookings: 'Bookings',
     summaryConfirmed: 'Confirmed',
     summaryQueues: 'Active queues',
@@ -46,17 +80,34 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     slotsEmpty: 'No slots available for the current filters.',
     slotsLoading: 'Loading slots…',
     loading: 'Loading schedule…',
-    unavailableTitle: 'Scheduling is not configured yet',
+    unavailableTitle: 'Schedule is not configured yet',
     unavailableDescription: 'Create at least one active branch and one schedule-enabled service to use this calendar.',
     filtersTitle: 'Filters',
     filtersDescription: 'Branch and service are mandatory. Resource is optional.',
-    timelineTitle: 'Operational timeline',
-    timelineDescription: 'Bookings are shown on the calendar. New bookings should be created from available slots.',
+    timelineTitle: '',
+    timelineDescription: '',
     openBooking: 'Book slot',
+    titleLabel: 'Title',
+    repeatLabel: 'Repeat',
+    repeatNever: 'Does not repeat',
+    repeatDaily: 'Daily',
+    repeatWeekly: 'Weekly',
+    repeatMonthly: 'Monthly',
+    repeatCustom: 'Custom',
+    repeatFrequencyLabel: 'Frequency',
+    repeatIntervalLabel: 'Every',
+    repeatCountLabel: 'Occurrences',
+    repeatWeekdaysLabel: 'Weekdays',
     bookingTitleCreate: 'Create booking',
     bookingTitleDetails: 'Booking details',
-    bookingSubtitleCreate: 'New reservation',
+    bookingSubtitleCreate: 'New booking',
     bookingSubtitleDetails: 'Current lifecycle state',
+    availableSlotLabel: 'Available slot',
+    availableSlotHint: 'Change the time, duration, or resource using an available slot.',
+    availableSlotLoading: 'Checking availability…',
+    unavailableSlotMessage: 'No available slot matches the selected date, time, duration, and resource.',
+    slotSummaryTitle: 'Slot summary',
+    bookingPreviewTitle: 'Booking preview',
     customerNameLabel: 'Customer name',
     customerPhoneLabel: 'Phone',
     customerEmailLabel: 'Email',
@@ -65,30 +116,37 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     serviceNameLabel: 'Service',
     resourceNameLabel: 'Resource',
     slotLabel: 'Slot',
-    slotRemainingLabel: 'Remaining',
+    slotStartLabel: 'Start',
+    slotEndLabel: 'End',
+    durationLabel: 'Duration',
+    timezoneLabel: 'Timezone',
+    occupiesLabel: 'Occupies',
+    conflictLabel: 'Conflicts',
+    slotRemainingLabel: 'Open spots',
     referenceLabel: 'Reference',
     close: 'Close',
-    create: 'Create booking',
+    create: 'Save',
     saving: 'Saving…',
     cancelBooking: 'Cancel booking',
     confirmBooking: 'Confirm booking',
     checkInBooking: 'Check in',
     startService: 'Start service',
     completeBooking: 'Complete',
-    noShowBooking: 'Mark no-show',
+    noShowBooking: 'Mark as no-show',
     rescheduleBooking: 'Reschedule booking',
-    dragRescheduleTitle: 'Reschedule booking',
-    dragRescheduleDescription: 'Do you want to move this booking to the new slot?',
+    dragRescheduleTitle: 'Move event',
+    dragRescheduleDescription: 'Do you want to move this event to the new slot?',
     destructiveTitle: 'Confirm action',
     cancelActionDescription: 'This booking will be cancelled and removed from the active agenda.',
     noShowActionDescription: 'This booking will be marked as no-show.',
     closeDirtyTitle: 'Discard booking draft',
-    closeDirtyDescription: 'You have unsaved customer data in this booking draft.',
+    closeDirtyDescription: 'You have unsaved changes in this booking draft.',
     keepEditing: 'Keep editing',
     discard: 'Discard',
-    searchPlaceholder: 'Search bookings, customers, resources…',
+    resizeLockedMessage: 'This calendar event keeps the duration defined by the service.',
+    searchPlaceholder: 'Search events, customers, resources…',
     statuses: {
-      hold: 'Hold',
+      hold: 'On hold',
       pending_confirmation: 'Pending confirmation',
       confirmed: 'Confirmed',
       checked_in: 'Checked in',
@@ -115,17 +173,34 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     slotsEmpty: 'No hay slots disponibles para los filtros actuales.',
     slotsLoading: 'Cargando slots…',
     loading: 'Cargando agenda…',
-    unavailableTitle: 'Scheduling todavía no está configurado',
+    unavailableTitle: 'La agenda todavía no está configurada',
     unavailableDescription: 'Creá al menos una sucursal activa y un servicio de agenda para usar este calendario.',
     filtersTitle: 'Filtros',
     filtersDescription: 'Sucursal y servicio son obligatorios. Recurso es opcional.',
-    timelineTitle: 'Agenda operativa',
-    timelineDescription: 'El calendario muestra reservas. Las nuevas reservas se crean desde slots disponibles.',
+    timelineTitle: '',
+    timelineDescription: '',
     openBooking: 'Reservar slot',
+    titleLabel: 'Título',
+    repeatLabel: 'Repetir',
+    repeatNever: 'No se repite',
+    repeatDaily: 'Diaria',
+    repeatWeekly: 'Semanal',
+    repeatMonthly: 'Mensual',
+    repeatCustom: 'Personalizada',
+    repeatFrequencyLabel: 'Frecuencia',
+    repeatIntervalLabel: 'Cada',
+    repeatCountLabel: 'Ocurrencias',
+    repeatWeekdaysLabel: 'Días',
     bookingTitleCreate: 'Crear reserva',
     bookingTitleDetails: 'Detalle de la reserva',
     bookingSubtitleCreate: 'Nueva reserva',
     bookingSubtitleDetails: 'Estado actual del turno',
+    availableSlotLabel: 'Slot disponible',
+    availableSlotHint: 'Cambiá hora, duración o recurso usando un slot válido.',
+    availableSlotLoading: 'Buscando disponibilidad...',
+    unavailableSlotMessage: 'No hay un slot disponible para la fecha, hora, duración y recurso elegidos.',
+    slotSummaryTitle: 'Resumen del slot',
+    bookingPreviewTitle: 'Vista previa',
     customerNameLabel: 'Cliente',
     customerPhoneLabel: 'Teléfono',
     customerEmailLabel: 'Email',
@@ -134,10 +209,16 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     serviceNameLabel: 'Servicio',
     resourceNameLabel: 'Recurso',
     slotLabel: 'Slot',
+    slotStartLabel: 'Inicio',
+    slotEndLabel: 'Fin',
+    durationLabel: 'Duración',
+    timezoneLabel: 'Zona horaria',
+    occupiesLabel: 'Bloquea',
+    conflictLabel: 'Conflictos',
     slotRemainingLabel: 'Cupos',
     referenceLabel: 'Referencia',
     close: 'Cerrar',
-    create: 'Crear reserva',
+    create: 'Guardar',
     saving: 'Guardando…',
     cancelBooking: 'Cancelar reserva',
     confirmBooking: 'Confirmar',
@@ -146,8 +227,8 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     completeBooking: 'Completar',
     noShowBooking: 'Marcar no-show',
     rescheduleBooking: 'Reprogramar reserva',
-    dragRescheduleTitle: 'Reprogramar reserva',
-    dragRescheduleDescription: '¿Querés mover esta reserva al nuevo horario?',
+    dragRescheduleTitle: 'Mover evento',
+    dragRescheduleDescription: '¿Querés mover este evento al nuevo horario?',
     destructiveTitle: 'Confirmar acción',
     cancelActionDescription: 'La reserva se cancelará y saldrá de la agenda activa.',
     noShowActionDescription: 'La reserva se marcará como no-show.',
@@ -155,9 +236,10 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     closeDirtyDescription: 'Hay datos cargados sin guardar en esta reserva.',
     keepEditing: 'Seguir editando',
     discard: 'Descartar',
-    searchPlaceholder: 'Buscar reservas, clientes, recursos…',
+    resizeLockedMessage: 'Este evento del calendario mantiene la duración definida por el servicio.',
+    searchPlaceholder: 'Buscar eventos, clientes, recursos…',
     statuses: {
-      hold: 'Hold',
+      hold: 'En espera',
       pending_confirmation: 'Pendiente de confirmación',
       confirmed: 'Confirmada',
       checked_in: 'Check-in',
@@ -174,7 +256,7 @@ export type SchedulingCalendarProps = {
   client: SchedulingClient;
   searchQuery?: string;
   copy?: Partial<SchedulingCalendarCopy>;
-  locale?: 'en' | 'es';
+  locale?: string;
   initialBranchId?: string;
   initialServiceId?: string;
   initialResourceId?: string | null;
@@ -187,13 +269,13 @@ type VisibleRange = {
   end: Date;
 };
 
-type CalendarEventDropArg = {
-  event: {
-    id: string;
-    startStr: string;
-  };
-  revert: () => void;
-};
+type CalendarDateClickArg = Parameters<NonNullable<CalendarSurfaceProps['onDateClick']>>[0];
+type CalendarDateSelectArg = Parameters<NonNullable<CalendarSurfaceProps['onSelect']>>[0];
+type CalendarEventDropArg = Parameters<NonNullable<CalendarSurfaceProps['onEventDrop']>>[0];
+type CalendarEventResizeArg = Parameters<NonNullable<CalendarSurfaceProps['onEventResize']>>[0];
+type CalendarSelectAllowArg = Parameters<NonNullable<CalendarSurfaceProps['selectAllow']>>[0];
+type CalendarEventAllowArg = Parameters<NonNullable<CalendarSurfaceProps['eventAllow']>>[0];
+type CalendarDraggedEventArg = Parameters<NonNullable<CalendarSurfaceProps['eventAllow']>>[1];
 
 function startOfDay(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
@@ -201,14 +283,6 @@ function startOfDay(value: Date): Date {
 
 function toDateInputValue(value: Date): string {
   return value.toISOString().slice(0, 10);
-}
-
-function formatClock(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(parsed);
 }
 
 function statusClassName(status: BookingStatus): string {
@@ -281,6 +355,19 @@ function matchesSearch(searchQuery: string, pieces: Array<string | undefined | n
   return pieces.some((piece) => piece?.toLocaleLowerCase().includes(normalized));
 }
 
+function matchesCreateEditorSlot(editor: SchedulingBookingCreateEditor, slot: TimeSlot): boolean {
+  return (
+    slot.resource_id === editor.resourceId &&
+    toDateInputValueFromIso(slot.start_at) === editor.date &&
+    toTimeInputValue(slot.start_at) === editor.startTime &&
+    toTimeInputValue(slot.end_at) === editor.endTime
+  );
+}
+
+function resolveSlotIdentityFromRange(resourceId: string, start: Date, end: Date): string {
+  return buildSlotIdentity(resourceId, start.toISOString(), end.toISOString());
+}
+
 export function SchedulingCalendar({
   client,
   searchQuery = '',
@@ -305,7 +392,7 @@ export function SchedulingCalendar({
   const [modalState, setModalState] = useState<SchedulingBookingModalState>({ open: false });
   const deferredSearch = useDeferredValue(searchQuery);
 
-  const copy = { ...schedulingCalendarCopyPresets[locale], ...copyOverrides };
+  const copy = { ...schedulingCalendarCopyPresets[resolveSchedulingCopyLocale(locale)], ...copyOverrides };
 
   const branchesQuery = useQuery<Branch[]>({
     queryKey: schedulingKeys.branches,
@@ -322,6 +409,13 @@ export function SchedulingCalendar({
   const resourcesQuery = useQuery<Resource[]>({
     queryKey: schedulingKeys.resources(selectedBranchId),
     queryFn: () => client.listResources(selectedBranchId),
+    enabled: Boolean(selectedBranchId),
+    staleTime: 60_000,
+  });
+
+  const availabilityRulesQuery = useQuery<AvailabilityRule[]>({
+    queryKey: schedulingKeys.availabilityRules(selectedBranchId, selectedResourceId),
+    queryFn: () => client.listAvailabilityRules(selectedBranchId, selectedResourceId),
     enabled: Boolean(selectedBranchId),
     staleTime: 60_000,
   });
@@ -346,7 +440,54 @@ export function SchedulingCalendar({
     staleTime: 10_000,
   });
 
+  const createEditorDate = modalState.open && modalState.mode === 'create' ? modalState.editor.date : focusedDate;
+
+  const createSlotsQuery = useQuery<TimeSlot[]>({
+    queryKey: schedulingKeys.slots(selectedBranchId, selectedServiceId, null, createEditorDate),
+    queryFn: () =>
+      client.listSlots({
+        branchId: selectedBranchId ?? '',
+        serviceId: selectedServiceId ?? '',
+        resourceId: null,
+        date: createEditorDate,
+      }),
+    enabled: Boolean(selectedBranchId && selectedServiceId && modalState.open && modalState.mode === 'create'),
+    staleTime: 10_000,
+  });
+
   const rangeDates = useMemo(() => buildVisibleDates(visibleRange), [visibleRange]);
+
+  const visibleSlotsQuery = useQuery<TimeSlot[]>({
+    queryKey: schedulingKeys.visibleSlotsRange(
+      selectedBranchId,
+      selectedServiceId,
+      selectedResourceId,
+      rangeDates[0] ?? focusedDate,
+      rangeDates[rangeDates.length - 1] ?? focusedDate,
+    ),
+    queryFn: async () => {
+      if (!selectedBranchId || !selectedServiceId || rangeDates.length === 0) {
+        return [];
+      }
+      const batches = await Promise.all(
+        rangeDates.map((date) =>
+          client.listSlots({
+            branchId: selectedBranchId,
+            serviceId: selectedServiceId,
+            resourceId: selectedResourceId,
+            date,
+          }),
+        ),
+      );
+      const unique = new Map<string, TimeSlot>();
+      for (const slot of batches.flat()) {
+        unique.set(buildSlotIdentity(slot.resource_id, slot.start_at, slot.end_at), slot);
+      }
+      return Array.from(unique.values()).sort((left, right) => left.start_at.localeCompare(right.start_at));
+    },
+    enabled: Boolean(selectedBranchId && selectedServiceId && rangeDates.length > 0),
+    staleTime: 10_000,
+  });
 
   const bookingsQuery = useQuery<Booking[]>({
     queryKey: schedulingKeys.bookingsRange(
@@ -376,6 +517,7 @@ export function SchedulingCalendar({
   const branches = branchesQuery.data ?? [];
   const services = servicesQuery.data ?? [];
   const resources = resourcesQuery.data ?? [];
+  const availabilityRules = availabilityRulesQuery.data ?? [];
 
   const scheduleServices = useMemo(
     () =>
@@ -400,6 +542,31 @@ export function SchedulingCalendar({
 
   const selectedService = scheduleServices.find((service) => service.id === selectedServiceId) ?? null;
   const selectedResource = filteredResources.find((resource) => resource.id === selectedResourceId) ?? null;
+
+  const visibleSlots = visibleSlotsQuery.data ?? [];
+  const visibleSlotsByDate = useMemo(() => {
+    const grouped = new Map<string, TimeSlot[]>();
+    for (const slot of visibleSlots) {
+      const day = toDateInputValueFromIso(slot.start_at);
+      const items = grouped.get(day);
+      if (items) {
+        items.push(slot);
+      } else {
+        grouped.set(day, [slot]);
+      }
+    }
+    return grouped;
+  }, [visibleSlots]);
+
+  const visibleSlotIdentities = useMemo(
+    () => new Set(visibleSlots.map((slot) => buildSlotIdentity(slot.resource_id, slot.start_at, slot.end_at))),
+    [visibleSlots],
+  );
+
+  const businessHours = useMemo(
+    () => buildSchedulingBusinessHours(availabilityRules, selectedResourceId),
+    [availabilityRules, selectedResourceId],
+  );
 
   useEffect(() => {
     if (selectedBranchId) {
@@ -431,9 +598,8 @@ export function SchedulingCalendar({
   const invalidateSchedule = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: schedulingKeys.dashboard(selectedBranchId, focusedDate) }),
-      queryClient.invalidateQueries({
-        queryKey: schedulingKeys.slots(selectedBranchId, selectedServiceId, selectedResourceId, focusedDate),
-      }),
+      queryClient.invalidateQueries({ queryKey: ['scheduling', 'slots'] }),
+      queryClient.invalidateQueries({ queryKey: ['scheduling', 'visible-slots-range'] }),
       queryClient.invalidateQueries({
         queryKey: schedulingKeys.bookingsRange(
           selectedBranchId,
@@ -446,9 +612,28 @@ export function SchedulingCalendar({
 
   const createBookingMutation = useMutation<Booking, Error, SchedulingBookingDraft>({
     mutationFn: async (draft: SchedulingBookingDraft) => {
-      if (!selectedBranchId || !selectedServiceId || !modalState.open || modalState.mode !== 'create') {
+      if (!selectedBranchId || !selectedServiceId || !modalState.open || modalState.mode !== 'create' || !modalState.slot) {
         throw new Error('missing scheduling context');
       }
+      const recurrenceMode = draft.recurrence.mode;
+      const interval = Number.parseInt(draft.recurrence.interval, 10);
+      const count = Number.parseInt(draft.recurrence.count, 10);
+      const recurrence =
+        recurrenceMode === 'none'
+          ? undefined
+          : {
+              freq: (recurrenceMode === 'custom'
+                ? draft.recurrence.frequency
+                : recurrenceMode) as 'daily' | 'weekly' | 'monthly',
+              interval: Number.isFinite(interval) && interval > 0 ? interval : 1,
+              count: Number.isFinite(count) && count > 0 ? count : 8,
+              by_weekday:
+                (recurrenceMode === 'custom' ? draft.recurrence.frequency : recurrenceMode) === 'weekly'
+                  ? draft.recurrence.byWeekday.length
+                    ? draft.recurrence.byWeekday
+                    : [new Date(modalState.slot.start_at).getUTCDay()]
+                  : undefined,
+            };
       return client.createBooking({
         branch_id: selectedBranchId,
         service_id: selectedServiceId,
@@ -458,6 +643,8 @@ export function SchedulingCalendar({
         customer_email: draft.customerEmail.trim() || undefined,
         start_at: modalState.slot.start_at,
         notes: draft.notes.trim() || undefined,
+        metadata: draft.title.trim() ? { title: draft.title.trim() } : undefined,
+        recurrence,
         source: 'admin',
       });
     },
@@ -485,39 +672,18 @@ export function SchedulingCalendar({
         case 'no_show':
           return client.markBookingNoShow(booking.id, 'Marked as no-show from scheduling calendar');
         default:
-          throw new Error(`unsupported action: ${action}`);
+          throw new Error(`unsupported action: ${String(action)}`);
       }
     },
     onMutate: () => setActionError(null),
     onSuccess: async (booking: Booking) => {
-      setModalState({
-        open: true,
-        mode: 'details',
-        booking,
-        service: scheduleServices.find((item) => item.id === booking.service_id),
-        resourceName: filteredResources.find((item) => item.id === booking.resource_id)?.name,
-      });
+      setModalState(buildSchedulingDetailsModalState(booking, scheduleServices, filteredResources));
       await invalidateSchedule();
     },
     onError: (error: Error) => setActionError(error.message),
   });
 
-  const rescheduleMutation = useMutation<Booking, Error, { bookingId: string; startAt: string }>({
-    mutationFn: async ({ bookingId, startAt }: { bookingId: string; startAt: string }) => {
-      return client.rescheduleBooking(bookingId, {
-        branch_id: selectedBranchId ?? undefined,
-        resource_id: selectedResourceId ?? undefined,
-        start_at: startAt,
-      });
-    },
-    onMutate: () => setActionError(null),
-    onSuccess: async () => {
-      await invalidateSchedule();
-    },
-    onError: (error: Error) => setActionError(error.message),
-  });
-
-  const bookings = useMemo(() => {
+  const filteredBookings = useMemo(() => {
     const source = bookingsQuery.data ?? [];
     return source.filter((booking) => {
       if (selectedServiceId && booking.service_id !== selectedServiceId) {
@@ -529,6 +695,7 @@ export function SchedulingCalendar({
       const serviceName = scheduleServices.find((service) => service.id === booking.service_id)?.name;
       const resourceName = filteredResources.find((resource) => resource.id === booking.resource_id)?.name;
       return matchesSearch(deferredSearch, [
+        resolveBookingDisplayTitle(booking),
         booking.customer_name,
         booking.customer_phone,
         booking.customer_email,
@@ -546,53 +713,206 @@ export function SchedulingCalendar({
     return source.filter((slot) =>
       matchesSearch(deferredSearch, [
         slot.resource_name,
-        formatClock(slot.start_at),
-        formatClock(slot.end_at),
+        formatSchedulingClock(slot.start_at, locale),
+        formatSchedulingClock(slot.end_at, locale),
         selectedService?.name,
       ]),
     );
-  }, [slotsQuery.data, deferredSearch, selectedService?.name]);
+  }, [slotsQuery.data, deferredSearch, selectedService?.name, locale]);
 
-  const eventInputs = useMemo<EventInput[]>(
-    () =>
-      bookings.map((booking) => {
-        const serviceName = scheduleServices.find((service) => service.id === booking.service_id)?.name;
-        const resourceName = filteredResources.find((resource) => resource.id === booking.resource_id)?.name;
-        return {
-          id: booking.id,
-          title: booking.customer_name,
-          start: booking.start_at,
-          end: booking.end_at,
-          color: eventColor(booking.status),
-          extendedProps: {
-            booking,
-            serviceName,
-            resourceName,
-          },
-        };
-      }),
-    [bookings, scheduleServices, filteredResources],
+  const calendarEvents = useMemo(
+    () => buildSchedulingCalendarEvents(filteredBookings, scheduleServices, filteredResources, eventColor),
+    [filteredBookings, scheduleServices, filteredResources],
   );
+  const fullCalendarEventInputs = useMemo(() => buildFullCalendarEventInputs(calendarEvents), [calendarEvents]);
 
-  const handleEventClick = (info: EventClickArg) => {
-    const booking = info.event.extendedProps.booking as Booking | undefined;
-    if (!booking) {
-      return;
+  const resolveDaySlots = (value: Date): TimeSlot[] => visibleSlotsByDate.get(toDateInputValue(value)) ?? [];
+
+  const handleSelectAllow = (info: CalendarSelectAllowArg) => {
+    if (!selectedService || !info.start || !info.end) {
+      return false;
     }
-    setModalState({
-      open: true,
-      mode: 'details',
-      booking,
-      service: scheduleServices.find((service) => service.id === booking.service_id),
-      resourceName: filteredResources.find((resource) => resource.id === booking.resource_id)?.name,
+    const startAt = info.start.toISOString();
+    const endAt = info.end.toISOString();
+    if (selectedResourceId) {
+      return visibleSlotIdentities.has(buildSlotIdentity(selectedResourceId, startAt, endAt));
+    }
+    return visibleSlots.some((slot) => slot.start_at === startAt && slot.end_at === endAt);
+  };
+
+  const handleEventAllow = (dropInfo: CalendarEventAllowArg, draggedEvent: CalendarDraggedEventArg) => {
+    if (!draggedEvent) {
+      return false;
+    }
+    const calendarEvent = draggedEvent.extendedProps.calendarEvent as CalendarEvent | undefined;
+    const sourceBooking = calendarEvent?.sourceBooking;
+    const resourceId = sourceBooking?.resource_id ?? selectedResourceId ?? null;
+    if (!resourceId || !dropInfo.start || !dropInfo.end) {
+      return false;
+    }
+    return visibleSlotIdentities.has(resolveSlotIdentityFromRange(resourceId, dropInfo.start, dropInfo.end));
+  };
+
+  const renderEventContent = (info: EventContentArg) => {
+    const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
+    if (!calendarEvent) {
+      return <span>{info.event.title}</span>;
+    }
+    const statusLabel = copy.statuses[calendarEvent.status];
+    const listTimeRange = `${formatSchedulingClock(calendarEvent.start_at, locale)} - ${formatSchedulingClock(calendarEvent.end_at, locale)}`;
+    const compactTimeRange = `${formatSchedulingCompactClock(calendarEvent.start_at, locale)}-${formatSchedulingCompactClock(calendarEvent.end_at, locale)}`;
+    const listView = info.view.type.startsWith('list');
+    const monthView = info.view.type === 'dayGridMonth';
+    const contextLabel = selectedResourceId
+      ? calendarEvent.serviceName ?? calendarEvent.resourceName
+      : calendarEvent.resourceName ?? calendarEvent.serviceName;
+    const secondaryLine = listView
+      ? [listTimeRange, statusLabel, calendarEvent.resourceName, calendarEvent.serviceName].filter(Boolean).join(' · ')
+      : [compactTimeRange, monthView ? undefined : contextLabel].filter(Boolean).join(' · ');
+
+    return (
+      <div className={`modules-scheduling__calendar-event ${listView ? 'modules-scheduling__calendar-event--list' : ''}`}>
+        <div className="modules-scheduling__calendar-event-top">
+          <strong>{calendarEvent.title}</strong>
+          {listView ? <span className={statusClassName(calendarEvent.status)}>{statusLabel}</span> : null}
+        </div>
+        {secondaryLine ? (
+          <div className="modules-scheduling__calendar-event-meta">
+            <span>{secondaryLine}</span>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const openCreateBookingModal = (slot: TimeSlot, resourceName?: string) => {
+    setModalState(
+      buildSchedulingCreateModalStateFromSlot(slot, selectedService, slotsQuery.data ?? [], filteredResources, resourceName),
+    );
+  };
+
+  const handleCreateEditorChange = (editorPatch: Partial<SchedulingBookingCreateEditor>) => {
+    setModalState((current) => {
+      if (!(current.open && current.mode === 'create')) {
+        return current;
+      }
+      return {
+        ...current,
+        editor: {
+          ...current.editor,
+          ...editorPatch,
+        },
+      };
     });
   };
 
-  const handleDateClick = (info: DateClickArg) => {
-    setFocusedDate(info.dateStr.slice(0, 10));
+  useEffect(() => {
+    if (!(modalState.open && modalState.mode === 'create')) {
+      return;
+    }
+    const slotOptions = createSlotsQuery.data ?? [];
+    const nextSlot = slotOptions.find((slot) => matchesCreateEditorSlot(modalState.editor, slot)) ?? null;
+    const nextResourceName =
+      filteredResources.find((resource) => resource.id === modalState.editor.resourceId)?.name ??
+      slotOptions.find((slot) => slot.resource_id === modalState.editor.resourceId)?.resource_name ??
+      modalState.resourceName;
+
+    setModalState((current) => {
+      if (!(current.open && current.mode === 'create')) {
+        return current;
+      }
+      const nextValidationMessage = nextSlot || createSlotsQuery.isFetching ? null : copy.unavailableSlotMessage;
+      const sameSlot =
+        current.slot?.resource_id === nextSlot?.resource_id &&
+        current.slot?.start_at === nextSlot?.start_at &&
+        current.slot?.end_at === nextSlot?.end_at;
+      if (
+        sameSlot &&
+        current.slotOptions === slotOptions &&
+        current.resourceName === nextResourceName &&
+        current.validationMessage === nextValidationMessage &&
+        current.resourceOptions.length === filteredResources.length
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        slot: nextSlot,
+        slotOptions,
+        resourceOptions: filteredResources.map((resource) => ({
+          id: resource.id,
+          name: resource.name,
+          timezone: resource.timezone,
+        })),
+        resourceName: nextResourceName,
+        validationMessage: nextValidationMessage,
+      };
+    });
+  }, [
+    modalState,
+    createSlotsQuery.data,
+    createSlotsQuery.isFetching,
+    copy.unavailableSlotMessage,
+    filteredResources,
+  ]);
+
+  const openCreateFromStart = (start: Date, startAt: string, end: Date | null = null, endAt: string | null = null) => {
+    const nextState = buildSchedulingCreateModalStateFromStart({
+      start,
+      startAt,
+      end,
+      endAt,
+      slots: resolveDaySlots(start),
+      selectedService,
+      selectedResource,
+      filteredResources,
+      selectedBranch,
+    });
+    if (nextState) {
+      setModalState(nextState);
+    }
   };
 
-  const handleEventDrop = async (info: CalendarEventDropArg) => {
+  const handleCalendarEventClick = (info: EventClickArg) => {
+    const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
+    const sourceBooking = calendarEvent?.sourceBooking;
+    if (!sourceBooking) {
+      return;
+    }
+    setModalState(buildSchedulingDetailsModalState(sourceBooking, scheduleServices, filteredResources));
+  };
+
+  const handleDateClick = (info: CalendarDateClickArg) => {
+    setFocusedDate(info.dateStr.slice(0, 10));
+    openCreateFromStart(info.date, info.date.toISOString());
+  };
+
+  const handleSelect = (info: CalendarDateSelectArg) => {
+    setFocusedDate(info.startStr.slice(0, 10));
+    calendarRef.current?.getApi().unselect();
+    const nextState = buildSchedulingCreateModalStateFromStart({
+      start: info.start,
+      startAt: info.start.toISOString(),
+      end: info.end,
+      endAt: info.end.toISOString(),
+      slots: resolveDaySlots(info.start),
+      selectedService,
+      selectedResource,
+      filteredResources,
+      selectedBranch,
+    });
+    if (nextState) {
+      setModalState(nextState);
+    }
+  };
+
+  const handleCalendarEventDrop = async (info: CalendarEventDropArg) => {
+    const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
+    const sourceBooking = calendarEvent?.sourceBooking;
+    if (!sourceBooking) {
+      info.revert();
+      return;
+    }
     const confirmed = await confirmAction({
       title: copy.dragRescheduleTitle,
       description: copy.dragRescheduleDescription,
@@ -604,13 +924,21 @@ export function SchedulingCalendar({
       return;
     }
     try {
-      await rescheduleMutation.mutateAsync({
-        bookingId: info.event.id,
-        startAt: info.event.startStr,
+      setActionError(null);
+      await client.rescheduleBooking(info.event.id, {
+        branch_id: selectedBranchId ?? undefined,
+        resource_id: sourceBooking.resource_id,
+        start_at: info.event.start?.toISOString() ?? info.event.startStr,
       });
+      await invalidateSchedule();
     } catch {
       info.revert();
     }
+  };
+
+  const handleEventResize = (info: CalendarEventResizeArg) => {
+    setActionError(copy.resizeLockedMessage);
+    info.revert();
   };
 
   const handleModalAction = async (action: SchedulingBookingAction, booking: Booking) => {
@@ -644,13 +972,24 @@ export function SchedulingCalendar({
     }
     api.scrollToTime(
       resolveInitialTimeGridScrollTime({
-        events: eventInputs,
+        events: fullCalendarEventInputs,
         rangeStart: api.view.activeStart,
         rangeEnd: api.view.activeEnd,
         fallbackHour: 8,
       }),
     );
   };
+
+  const timeGridViewport = useMemo(
+    () =>
+      resolveInitialTimeGridViewport({
+        events: fullCalendarEventInputs,
+        rangeStart: visibleRange.start,
+        rangeEnd: visibleRange.end,
+        fallbackHour: 8,
+      }),
+    [fullCalendarEventInputs, visibleRange],
+  );
 
   const loading = branchesQuery.isLoading || servicesQuery.isLoading;
 
@@ -680,23 +1019,145 @@ export function SchedulingCalendar({
     <section className={`modules-scheduling ${className}`.trim()}>
       {actionError ? <div className="alert alert-error">{actionError}</div> : null}
 
-      <div className="modules-scheduling__summary stats-grid">
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryBookings}</div>
-          <div className="stat-value">{dashboardQuery.data?.bookings_today ?? '—'}</div>
-        </article>
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryConfirmed}</div>
-          <div className="stat-value">{dashboardQuery.data?.confirmed_bookings_today ?? '—'}</div>
-        </article>
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryQueues}</div>
-          <div className="stat-value">{dashboardQuery.data?.active_queues ?? '—'}</div>
-        </article>
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryWaiting}</div>
-          <div className="stat-value">{dashboardQuery.data?.waiting_tickets ?? '—'}</div>
-        </article>
+      <div className="modules-scheduling__layout">
+        <div className="card modules-scheduling__calendar-card">
+          {(copy.timelineTitle || copy.timelineDescription) && (
+            <div className="card-header">
+              <div>
+                {copy.timelineTitle && <h2>{copy.timelineTitle}</h2>}
+                {copy.timelineDescription && <p className="text-secondary">{copy.timelineDescription}</p>}
+              </div>
+            </div>
+          )}
+          <CalendarSurface
+            calendarRef={calendarRef}
+            view={view}
+            title={calendarTitle}
+            loaded={!bookingsQuery.isLoading}
+            onToday={() => {
+              const api = calendarRef.current?.getApi();
+              api?.today();
+              updateCalendarTitle();
+              scrollCalendarToRelevantTime();
+              setFocusedDate(toDateInputValue(new Date()));
+            }}
+            onPrev={() => {
+              const api = calendarRef.current?.getApi();
+              api?.prev();
+              updateCalendarTitle();
+            }}
+            onNext={() => {
+              const api = calendarRef.current?.getApi();
+              api?.next();
+              updateCalendarTitle();
+            }}
+            onViewChange={(nextView: CalendarView) => {
+              const api = calendarRef.current?.getApi();
+              api?.changeView(nextView);
+              setView(nextView);
+              updateCalendarTitle();
+              window.requestAnimationFrame(() => {
+                scrollCalendarToRelevantTime();
+              });
+            }}
+            scrollTime={timeGridViewport.scrollTime}
+            scrollTimeReset={false}
+            slotMinTime={timeGridViewport.slotMinTime}
+            events={fullCalendarEventInputs}
+            businessHours={businessHours}
+            editable
+            selectable={Boolean(selectedService)}
+            eventDurationEditable
+            selectAllow={handleSelectAllow}
+            eventAllow={handleEventAllow}
+            eventConstraint={businessHours.length ? 'businessHours' : undefined}
+            eventContent={renderEventContent}
+            dayMaxEvents
+            weekends
+            onEventClick={handleCalendarEventClick}
+            onEventDrop={handleCalendarEventDrop}
+            onEventResize={handleEventResize}
+            onDateClick={handleDateClick}
+            onSelect={handleSelect}
+            onDatesSet={(info: { start: Date; end: Date }) => {
+              setVisibleRange({ start: info.start, end: info.end });
+              updateCalendarTitle();
+              scrollCalendarToRelevantTime();
+            }}
+          />
+        </div>
+
+        <aside className="card modules-scheduling__slots-card">
+          <div className="card-header">
+            <div>
+              <h2>{copy.slotsTitle}</h2>
+              <p className="text-secondary">{copy.slotsDescription}</p>
+            </div>
+          </div>
+          <div className="modules-scheduling__slots-date">
+            <span>{focusedDate}</span>
+            {selectedBranch ? <span>{selectedBranch.name}</span> : null}
+          </div>
+          {slotsQuery.isLoading ? (
+            <div className="modules-scheduling__empty">{copy.slotsLoading}</div>
+          ) : slotItems.length === 0 ? (
+            <div className="modules-scheduling__empty">{copy.slotsEmpty}</div>
+          ) : (
+            <ul className="modules-scheduling__slot-list">
+              {slotItems.map((slot) => (
+                <li key={`${slot.resource_id}:${slot.start_at}`} className="modules-scheduling__slot-card">
+                  <div className="modules-scheduling__slot-main">
+                    <strong>
+                      {formatSchedulingClock(slot.start_at, locale)} - {formatSchedulingClock(slot.end_at, locale)}
+                    </strong>
+                    <span>{slot.resource_name}</span>
+                  </div>
+                  <div className="modules-scheduling__slot-meta">
+                    <span>
+                      {copy.slotRemainingLabel}: {slot.remaining}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm"
+                      onClick={() => openCreateBookingModal(slot, slot.resource_name)}
+                    >
+                      {copy.openBooking}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="modules-scheduling__results">
+            {filteredBookings.length === 0 ? (
+              <span className="text-muted">{copy.searchPlaceholder}</span>
+            ) : (
+              filteredBookings.slice(0, 6).map((booking) => {
+                const serviceName = scheduleServices.find((service) => service.id === booking.service_id)?.name;
+                const resourceName = filteredResources.find((resource) => resource.id === booking.resource_id)?.name;
+                return (
+                  <button
+                    key={booking.id}
+                    type="button"
+                    className="modules-scheduling__booking-row"
+                    onClick={() => setModalState(buildSchedulingDetailsModalState(booking, scheduleServices, filteredResources))}
+                  >
+                    <div className="modules-scheduling__booking-row-main">
+                      <strong>{resolveBookingDisplayTitle(booking)}</strong>
+                      <span>{serviceName ?? booking.service_id}</span>
+                    </div>
+                    <div className="modules-scheduling__booking-row-meta">
+                      <span>{formatSchedulingClock(booking.start_at, locale)}</span>
+                      <span className={statusClassName(booking.status)}>{copy.statuses[booking.status]}</span>
+                      <span>{resourceName ?? booking.resource_id}</span>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
       </div>
 
       <div className="card">
@@ -762,167 +1223,33 @@ export function SchedulingCalendar({
         </div>
       </div>
 
-      <div className="modules-scheduling__layout">
-        <div className="card modules-scheduling__calendar-card">
-          <div className="card-header">
-            <div>
-              <h2>{copy.timelineTitle}</h2>
-              <p className="text-secondary">{copy.timelineDescription}</p>
-            </div>
-          </div>
-          <CalendarSurface
-            calendarRef={calendarRef}
-            view={view}
-            title={calendarTitle}
-            loaded={!bookingsQuery.isLoading}
-            onToday={() => {
-              const api = calendarRef.current?.getApi();
-              api?.today();
-              updateCalendarTitle();
-              scrollCalendarToRelevantTime();
-              setFocusedDate(toDateInputValue(new Date()));
-            }}
-            onPrev={() => {
-              const api = calendarRef.current?.getApi();
-              api?.prev();
-              updateCalendarTitle();
-            }}
-            onNext={() => {
-              const api = calendarRef.current?.getApi();
-              api?.next();
-              updateCalendarTitle();
-            }}
-            onViewChange={(nextView) => {
-              const api = calendarRef.current?.getApi();
-              api?.changeView(nextView);
-              setView(nextView);
-              updateCalendarTitle();
-              window.requestAnimationFrame(() => {
-                scrollCalendarToRelevantTime();
-              });
-            }}
-            scrollTime="07:30:00"
-            scrollTimeReset={false}
-            slotMinTime="07:00:00"
-            calendarOptions={{
-              editable: true,
-              selectable: false,
-              eventDurationEditable: false,
-              dayMaxEvents: true,
-              weekends: true,
-              events: eventInputs,
-              eventClick: handleEventClick,
-              eventDrop: handleEventDrop,
-              dateClick: handleDateClick,
-              datesSet: (info) => {
-                setVisibleRange({ start: info.start, end: info.end });
-                updateCalendarTitle();
-                scrollCalendarToRelevantTime();
-              },
-            }}
-          />
-        </div>
-
-        <aside className="card modules-scheduling__slots-card">
-          <div className="card-header">
-            <div>
-              <h2>{copy.slotsTitle}</h2>
-              <p className="text-secondary">{copy.slotsDescription}</p>
-            </div>
-          </div>
-          <div className="modules-scheduling__slots-date">
-            <span>{focusedDate}</span>
-            {selectedBranch ? <span>{selectedBranch.name}</span> : null}
-          </div>
-          {slotsQuery.isLoading ? (
-            <div className="modules-scheduling__empty">{copy.slotsLoading}</div>
-          ) : slotItems.length === 0 ? (
-            <div className="modules-scheduling__empty">{copy.slotsEmpty}</div>
-          ) : (
-            <ul className="modules-scheduling__slot-list">
-              {slotItems.map((slot) => (
-                <li key={`${slot.resource_id}:${slot.start_at}`} className="modules-scheduling__slot-card">
-                  <div className="modules-scheduling__slot-main">
-                    <strong>
-                      {formatClock(slot.start_at)} - {formatClock(slot.end_at)}
-                    </strong>
-                    <span>{slot.resource_name}</span>
-                  </div>
-                  <div className="modules-scheduling__slot-meta">
-                    <span>
-                      {copy.slotRemainingLabel}: {slot.remaining}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn-primary btn-sm"
-                      onClick={() =>
-                        setModalState({
-                          open: true,
-                          mode: 'create',
-                          slot,
-                          service: selectedService ?? undefined,
-                          resourceName: slot.resource_name,
-                          draft: {
-                            customerName: '',
-                            customerPhone: '',
-                            customerEmail: '',
-                            notes: '',
-                          },
-                        })
-                      }
-                    >
-                      {copy.openBooking}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="modules-scheduling__results">
-            {bookings.length === 0 ? (
-              <span className="text-muted">{copy.searchPlaceholder}</span>
-            ) : (
-              bookings.slice(0, 6).map((booking) => {
-                const serviceName = scheduleServices.find((service) => service.id === booking.service_id)?.name;
-                const resourceName = filteredResources.find((resource) => resource.id === booking.resource_id)?.name;
-                return (
-                  <button
-                    key={booking.id}
-                    type="button"
-                    className="modules-scheduling__booking-row"
-                    onClick={() =>
-                      setModalState({
-                        open: true,
-                        mode: 'details',
-                        booking,
-                        service: scheduleServices.find((service) => service.id === booking.service_id),
-                        resourceName,
-                      })
-                    }
-                  >
-                    <div className="modules-scheduling__booking-row-main">
-                      <strong>{booking.customer_name}</strong>
-                      <span>{serviceName ?? booking.service_id}</span>
-                    </div>
-                    <div className="modules-scheduling__booking-row-meta">
-                      <span>{formatClock(booking.start_at)}</span>
-                      <span className={statusClassName(booking.status)}>{copy.statuses[booking.status]}</span>
-                      <span>{resourceName ?? booking.resource_id}</span>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </aside>
+      <div className="modules-scheduling__summary stats-grid">
+        <article className="stat-card">
+          <div className="stat-label">{copy.summaryBookings}</div>
+          <div className="stat-value">{dashboardQuery.data?.bookings_today ?? '—'}</div>
+        </article>
+        <article className="stat-card">
+          <div className="stat-label">{copy.summaryConfirmed}</div>
+          <div className="stat-value">{dashboardQuery.data?.confirmed_bookings_today ?? '—'}</div>
+        </article>
+        <article className="stat-card">
+          <div className="stat-label">{copy.summaryQueues}</div>
+          <div className="stat-value">{dashboardQuery.data?.active_queues ?? '—'}</div>
+        </article>
+        <article className="stat-card">
+          <div className="stat-label">{copy.summaryWaiting}</div>
+          <div className="stat-value">{dashboardQuery.data?.waiting_tickets ?? '—'}</div>
+        </article>
       </div>
 
       <SchedulingBookingModal
         state={modalState}
         copy={copy}
+        locale={locale}
         saving={createBookingMutation.isPending || bookingActionMutation.isPending}
+        slotLoading={createSlotsQuery.isFetching}
         onClose={() => setModalState({ open: false })}
+        onEditorChange={handleCreateEditorChange}
         onCreate={async (draft) => {
           await createBookingMutation.mutateAsync(draft);
         }}
