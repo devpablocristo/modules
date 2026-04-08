@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SchedulingClient } from './client';
 import { SchedulingDaySummary } from './SchedulingDaySummary';
@@ -72,6 +72,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
 }
 
 function renderSummary(client: SchedulingClient) {
+  cleanup();
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -87,6 +88,7 @@ function renderSummary(client: SchedulingClient) {
 }
 
 function renderSummaryWithLocale(client: SchedulingClient, locale: string) {
+  cleanup();
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -128,7 +130,7 @@ describe('SchedulingDaySummary', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Agenda de hoy')).toBeTruthy();
-      expect(screen.getByText(/dic/i)).toBeTruthy();
+      expect(screen.getByText(/\d{1,2}\/\d{1,2}\/\d{4}/)).toBeTruthy();
     });
   });
 });

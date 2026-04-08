@@ -27,6 +27,8 @@ type usecasesPort interface {
 	CreateAvailabilityRule(ctx context.Context, orgID uuid.UUID, actor string, in schedulingdomain.AvailabilityRule) (schedulingdomain.AvailabilityRule, error)
 	ListBlockedRanges(ctx context.Context, orgID uuid.UUID, branchID, resourceID *uuid.UUID, day *time.Time) ([]schedulingdomain.BlockedRange, error)
 	CreateBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
+	UpdateBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
+	DeleteBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID) error
 	ListAvailableSlots(ctx context.Context, orgID uuid.UUID, query schedulingdomain.SlotQuery) ([]schedulingdomain.TimeSlot, error)
 	ListBookings(ctx context.Context, orgID uuid.UUID, filter schedulingdomain.ListBookingsFilter) ([]schedulingdomain.Booking, error)
 	GetBookingByID(ctx context.Context, orgID, bookingID uuid.UUID) (schedulingdomain.Booking, error)
@@ -86,6 +88,8 @@ func (h *Handler) RegisterRoutes(auth *gin.RouterGroup, require PermissionBinder
 	auth.POST("/scheduling/availability-rules", withPermission(require, "scheduling", "create"), h.CreateAvailabilityRule)
 	auth.GET("/scheduling/blocked-ranges", withPermission(require, "scheduling", "read"), h.ListBlockedRanges)
 	auth.POST("/scheduling/blocked-ranges", withPermission(require, "scheduling", "create"), h.CreateBlockedRange)
+	auth.PATCH("/scheduling/blocked-ranges/:id", withPermission(require, "scheduling", "update"), h.UpdateBlockedRange)
+	auth.DELETE("/scheduling/blocked-ranges/:id", withPermission(require, "scheduling", "delete"), h.DeleteBlockedRange)
 	auth.GET("/scheduling/slots", withPermission(require, "scheduling", "read"), h.ListAvailableSlots)
 	auth.GET("/scheduling/bookings", withPermission(require, "scheduling", "read"), h.ListBookings)
 	auth.GET("/scheduling/bookings/:id", withPermission(require, "scheduling", "read"), h.GetBooking)
@@ -426,6 +430,65 @@ func (h *Handler) CreateBlockedRange(c *gin.Context) {
 	c.JSON(http.StatusCreated, out)
 }
 
+func (h *Handler) UpdateBlockedRange(c *gin.Context) {
+	orgID, authCtx, id, ok := authOrgActorAndID(c)
+	if !ok {
+		return
+	}
+	var req schedulingdto.UpdateBlockedRangeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	branchID, err := uuid.Parse(strings.TrimSpace(req.BranchID))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid branch_id"})
+		return
+	}
+	resourceID, err := parseUUIDPtr(req.ResourceID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource_id"})
+		return
+	}
+	startAt, err := parseRFC3339(req.StartAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_at"})
+		return
+	}
+	endAt, err := parseRFC3339(req.EndAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_at"})
+		return
+	}
+	out, err := h.uc.UpdateBlockedRange(c.Request.Context(), orgID, authCtx.Actor, id, schedulingdomain.BlockedRange{
+		BranchID:   branchID,
+		ResourceID: resourceID,
+		Kind:       schedulingdomain.BlockedRangeKind(req.Kind),
+		Reason:     req.Reason,
+		StartAt:    startAt,
+		EndAt:      endAt,
+		AllDay:     req.AllDay,
+		Metadata:   req.Metadata,
+	})
+	if err != nil {
+		handlers.Respond(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) DeleteBlockedRange(c *gin.Context) {
+	orgID, authCtx, id, ok := authOrgActorAndID(c)
+	if !ok {
+		return
+	}
+	if err := h.uc.DeleteBlockedRange(c.Request.Context(), orgID, authCtx.Actor, id); err != nil {
+		handlers.Respond(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func (h *Handler) ListAvailableSlots(c *gin.Context) {
 	orgID, ok := authOrg(c)
 	if !ok {
@@ -541,6 +604,11 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_at"})
 		return
 	}
+	endAt, err := parseRFC3339Ptr(req.EndAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_at"})
+		return
+	}
 	holdUntil, err := parseRFC3339Ptr(req.HoldUntil)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid hold_until"})
@@ -572,6 +640,7 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		CustomerPhone:  req.CustomerPhone,
 		CustomerEmail:  req.CustomerEmail,
 		StartAt:        startAt,
+		EndAt:          endAt,
 		Status:         schedulingdomain.BookingStatus(req.Status),
 		Source:         schedulingdomain.BookingSource(req.Source),
 		IdempotencyKey: req.IdempotencyKey,
@@ -700,9 +769,15 @@ func (h *Handler) RescheduleBooking(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_at"})
 		return
 	}
+	endAt, err := parseRFC3339Ptr(req.EndAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_at"})
+		return
+	}
 	payload := schedulingdomain.RescheduleBookingInput{
 		BookingID: bookingID,
 		StartAt:   startAt,
+		EndAt:     endAt,
 	}
 	if branchID != nil {
 		payload.BranchID = *branchID

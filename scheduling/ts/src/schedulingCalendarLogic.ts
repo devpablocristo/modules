@@ -5,7 +5,16 @@ import type {
   SchedulingBookingModalState,
   SchedulingBookingRecurrenceDraft,
 } from './SchedulingBookingModal';
-import type { AvailabilityRule, Booking, Branch, CalendarEvent, Resource, Service, TimeSlot } from './types';
+import type {
+  AvailabilityRule,
+  BlockedRange,
+  Booking,
+  Branch,
+  CalendarEvent,
+  Resource,
+  Service,
+  TimeSlot,
+} from './types';
 
 export type SchedulingBusinessHours = {
   daysOfWeek: number[];
@@ -337,4 +346,186 @@ export function buildSchedulingCreateModalStateFromStart({
     filteredResources,
     fallbackResource.name,
   );
+}
+
+/** Slot sintético desde el editor cuando no hay coincidencia en la lista de slots del API (rango libre). */
+export function buildSyntheticTimeSlotFromEditor(
+  editor: SchedulingBookingCreateEditor,
+  service: Service,
+  resource: Resource | null | undefined,
+  branch: Branch | null,
+): TimeSlot | null {
+  if (!resource) {
+    return null;
+  }
+  const startWall = `${editor.date}T${normalizeClock(editor.startTime)}:00`;
+  const endWall = `${editor.date}T${normalizeClock(editor.endTime)}:00`;
+  const startMs = new Date(startWall).getTime();
+  const endMs = new Date(endWall).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return null;
+  }
+  const startAt = new Date(startMs).toISOString();
+  const endAt = new Date(endMs).toISOString();
+  return {
+    resource_id: resource.id,
+    resource_name: resource.name,
+    start_at: startAt,
+    end_at: endAt,
+    occupies_from: startAt,
+    occupies_until: endAt,
+    timezone: resource.timezone ?? branch?.timezone ?? 'UTC',
+    remaining: 1,
+    conflict_count: 0,
+    granularity_minutes: service.slot_granularity_minutes,
+  };
+}
+
+/** Paridad con `bookingStatusesBlocking` en el repositorio Go. */
+export const SCHEDULING_BLOCKING_BOOKING_STATUSES: ReadonlySet<Booking['status']> = new Set([
+  'hold',
+  'pending_confirmation',
+  'confirmed',
+  'checked_in',
+  'in_service',
+]);
+
+export function bookingBlocksCollisions(booking: Booking, nowMs: number = Date.now()): boolean {
+  if (!SCHEDULING_BLOCKING_BOOKING_STATUSES.has(booking.status)) {
+    return false;
+  }
+  if (booking.status === 'hold' && booking.hold_expires_at) {
+    const exp = Date.parse(booking.hold_expires_at);
+    if (Number.isFinite(exp) && exp < nowMs) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function buildOccupancyWindowFromServiceRange(
+  start: Date,
+  end: Date,
+  service: Pick<Service, 'buffer_before_minutes' | 'buffer_after_minutes'>,
+): { occupiesFrom: Date; occupiesUntil: Date } {
+  const beforeMs = Math.max(0, service.buffer_before_minutes ?? 0) * 60_000;
+  const afterMs = Math.max(0, service.buffer_after_minutes ?? 0) * 60_000;
+  return {
+    occupiesFrom: new Date(start.getTime() - beforeMs),
+    occupiesUntil: new Date(end.getTime() + afterMs),
+  };
+}
+
+/** Solape de intervalos [aStart,aEnd) vs [bStart,bEnd) alineado al criterio SQL del backend. */
+export function schedulingIntervalsOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+  return aStart.getTime() < bEnd.getTime() && aEnd.getTime() > bStart.getTime();
+}
+
+export function bookingOccupancyOverlapsWindow(
+  booking: Booking,
+  occupiesFrom: Date,
+  occupiesUntil: Date,
+): boolean {
+  const bStart = new Date(booking.occupies_from);
+  const bEnd = new Date(booking.occupies_until);
+  if (!Number.isFinite(bStart.getTime()) || !Number.isFinite(bEnd.getTime())) {
+    return false;
+  }
+  return schedulingIntervalsOverlap(occupiesFrom, occupiesUntil, bStart, bEnd);
+}
+
+export function blockedRangeOverlapsWindow(
+  range: BlockedRange,
+  occupiesFrom: Date,
+  occupiesUntil: Date,
+  resourceId: string,
+): boolean {
+  const rStart = new Date(range.start_at);
+  const rEnd = new Date(range.end_at);
+  if (!Number.isFinite(rStart.getTime()) || !Number.isFinite(rEnd.getTime())) {
+    return false;
+  }
+  const appliesToResource = !range.resource_id || range.resource_id === resourceId;
+  if (!appliesToResource) {
+    return false;
+  }
+  return schedulingIntervalsOverlap(occupiesFrom, occupiesUntil, rStart, rEnd);
+}
+
+/**
+ * Comprueba si algún recurso candidato admite la selección sin solapar ocupaciones existentes
+ * (incl. buffers del servicio) ni bloqueos. Evita abrir el modal con rangos que el backend
+ * rechazará con 409.
+ */
+export function calendarSelectionAllowedWithBuffers(params: {
+  start: Date;
+  end: Date;
+  /** Obligatorio salvo cuando `occupancyIsExplicit` es true (solo se usa para buffers). */
+  service: Service | null;
+  resourceIds: readonly string[];
+  bookings: readonly Booking[];
+  blockedRanges: readonly BlockedRange[];
+  /** Ventana de ocupación = [start,end] sin ampliar por buffers (p. ej. arrastre de bloqueo). */
+  occupancyIsExplicit?: boolean;
+  excludeBookingId?: string | null;
+  excludeBlockedRangeId?: string | null;
+}): boolean {
+  const {
+    start,
+    end,
+    service,
+    resourceIds,
+    bookings,
+    blockedRanges,
+    occupancyIsExplicit = false,
+    excludeBookingId,
+    excludeBlockedRangeId,
+  } = params;
+  if (!resourceIds.length) {
+    return false;
+  }
+  if (!occupancyIsExplicit && !service) {
+    return false;
+  }
+  const { occupiesFrom, occupiesUntil } = occupancyIsExplicit
+    ? { occupiesFrom: start, occupiesUntil: end }
+    : buildOccupancyWindowFromServiceRange(start, end, service!);
+  if (occupiesUntil.getTime() <= occupiesFrom.getTime()) {
+    return false;
+  }
+
+  for (const resourceId of resourceIds) {
+    let collides = false;
+    for (const booking of bookings) {
+      if (excludeBookingId && booking.id === excludeBookingId) {
+        continue;
+      }
+      if (!bookingBlocksCollisions(booking)) {
+        continue;
+      }
+      if (booking.resource_id !== resourceId) {
+        continue;
+      }
+      if (bookingOccupancyOverlapsWindow(booking, occupiesFrom, occupiesUntil)) {
+        collides = true;
+        break;
+      }
+    }
+    if (collides) {
+      continue;
+    }
+    for (const range of blockedRanges) {
+      if (excludeBlockedRangeId && range.id === excludeBlockedRangeId) {
+        continue;
+      }
+      if (blockedRangeOverlapsWindow(range, occupiesFrom, occupiesUntil, resourceId)) {
+        collides = true;
+        break;
+      }
+    }
+    if (!collides) {
+      return true;
+    }
+  }
+  return false;
 }

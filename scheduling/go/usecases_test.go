@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	corescheduling "github.com/devpablocristo/core/scheduling/go"
 	schedulingdomain "github.com/devpablocristo/modules/scheduling/go/domain"
 )
 
@@ -167,3 +168,150 @@ func TestAddMonthsPreservingDayClampsToMonthEnd(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+func TestRangeFitsAnyWindow(t *testing.T) {
+	t.Parallel()
+
+	loc, err := time.LoadLocation("America/Argentina/Tucuman")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	day := time.Date(2026, 4, 6, 0, 0, 0, 0, loc)
+	morning := corescheduling.Window{
+		Start: time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, loc),
+		End:   time.Date(day.Year(), day.Month(), day.Day(), 13, 0, 0, 0, loc),
+	}
+	afternoon := corescheduling.Window{
+		Start: time.Date(day.Year(), day.Month(), day.Day(), 15, 0, 0, 0, loc),
+		End:   time.Date(day.Year(), day.Month(), day.Day(), 19, 0, 0, 0, loc),
+	}
+	windows := []corescheduling.Window{morning, afternoon}
+
+	tests := []struct {
+		name  string
+		start time.Time
+		end   time.Time
+		want  bool
+	}{
+		{
+			name:  "fully inside morning",
+			start: time.Date(2026, 4, 6, 10, 0, 0, 0, loc),
+			end:   time.Date(2026, 4, 6, 11, 0, 0, 0, loc),
+			want:  true,
+		},
+		{
+			name:  "exactly matches afternoon",
+			start: time.Date(2026, 4, 6, 15, 0, 0, 0, loc),
+			end:   time.Date(2026, 4, 6, 19, 0, 0, 0, loc),
+			want:  true,
+		},
+		{
+			name:  "spans the lunch break",
+			start: time.Date(2026, 4, 6, 12, 30, 0, 0, loc),
+			end:   time.Date(2026, 4, 6, 16, 0, 0, 0, loc),
+			want:  false,
+		},
+		{
+			name:  "before any window",
+			start: time.Date(2026, 4, 6, 7, 0, 0, 0, loc),
+			end:   time.Date(2026, 4, 6, 8, 0, 0, 0, loc),
+			want:  false,
+		},
+		{
+			name:  "after any window",
+			start: time.Date(2026, 4, 6, 20, 0, 0, 0, loc),
+			end:   time.Date(2026, 4, 6, 21, 0, 0, 0, loc),
+			want:  false,
+		},
+		{
+			name:  "starts inside morning but ends past it",
+			start: time.Date(2026, 4, 6, 12, 0, 0, 0, loc),
+			end:   time.Date(2026, 4, 6, 13, 30, 0, 0, loc),
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := rangeFitsAnyWindow(tt.start, tt.end, windows); got != tt.want {
+				t.Fatalf("rangeFitsAnyWindow() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateBlockedRangeFields(t *testing.T) {
+	t.Parallel()
+
+	branchID := uuid.New()
+	start := time.Date(2026, 4, 6, 14, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 4, 6, 16, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		in      schedulingdomain.BlockedRange
+		wantErr bool
+		wantKind schedulingdomain.BlockedRangeKind
+	}{
+		{
+			name:     "happy path manual",
+			in:       schedulingdomain.BlockedRange{BranchID: branchID, Kind: schedulingdomain.BlockedRangeKindManual, StartAt: start, EndAt: end},
+			wantKind: schedulingdomain.BlockedRangeKindManual,
+		},
+		{
+			name:     "kind is normalized from upper case",
+			in:       schedulingdomain.BlockedRange{BranchID: branchID, Kind: "HOLIDAY", StartAt: start, EndAt: end},
+			wantKind: schedulingdomain.BlockedRangeKindHoliday,
+		},
+		{
+			name:    "missing branch_id",
+			in:      schedulingdomain.BlockedRange{Kind: schedulingdomain.BlockedRangeKindManual, StartAt: start, EndAt: end},
+			wantErr: true,
+		},
+		{
+			name:    "invalid kind",
+			in:      schedulingdomain.BlockedRange{BranchID: branchID, Kind: "made-up", StartAt: start, EndAt: end},
+			wantErr: true,
+		},
+		{
+			name:    "missing start_at",
+			in:      schedulingdomain.BlockedRange{BranchID: branchID, Kind: schedulingdomain.BlockedRangeKindManual, EndAt: end},
+			wantErr: true,
+		},
+		{
+			name:    "missing end_at",
+			in:      schedulingdomain.BlockedRange{BranchID: branchID, Kind: schedulingdomain.BlockedRangeKindManual, StartAt: start},
+			wantErr: true,
+		},
+		{
+			name:    "end before start",
+			in:      schedulingdomain.BlockedRange{BranchID: branchID, Kind: schedulingdomain.BlockedRangeKindManual, StartAt: end, EndAt: start},
+			wantErr: true,
+		},
+		{
+			name:    "end equal to start",
+			in:      schedulingdomain.BlockedRange{BranchID: branchID, Kind: schedulingdomain.BlockedRangeKindManual, StartAt: start, EndAt: start},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			kind, err := validateBlockedRangeFields(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if kind != tt.wantKind {
+				t.Fatalf("kind = %q, want %q", kind, tt.wantKind)
+			}
+		})
+	}
+}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SchedulingBookingModal, type SchedulingBookingModalState } from './SchedulingBookingModal';
 import type { SchedulingCalendarCopy } from './types';
 
@@ -174,6 +174,10 @@ const createState: SchedulingBookingModalState = {
 };
 
 describe('SchedulingBookingModal', () => {
+  beforeEach(() => {
+    cleanup();
+  });
+
   it('muestra confirmación al cerrar con Escape si hay cambios sin guardar', async () => {
     const onClose = vi.fn();
     confirmActionMock.mockResolvedValue(false);

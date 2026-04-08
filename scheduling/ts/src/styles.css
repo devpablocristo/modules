@@ -17,26 +17,19 @@
 }
 
 .modules-scheduling__layout {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-4);
-  align-items: start;
+  align-items: stretch;
 }
 
-.modules-scheduling__calendar-card,
-.modules-scheduling__slots-card {
+.modules-scheduling__calendar-card {
   min-width: 0;
 }
 
 .modules-scheduling__calendar-card .modules-calendar {
   height: calc(100vh - 268px);
   min-height: 620px;
-}
-
-.modules-scheduling__slots-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
 }
 
 .modules-scheduling__calendar-event {
@@ -92,6 +85,14 @@
 
 .modules-scheduling__calendar-event--list .modules-scheduling__calendar-event-meta span {
   white-space: normal;
+}
+
+.modules-scheduling__calendar-event--free-slot {
+  cursor: pointer;
+}
+
+.modules-scheduling__calendar-event--free-slot strong {
+  font-size: 0.78rem;
 }
 
 .modules-scheduling__slots-date {
@@ -590,10 +591,6 @@
 }
 
 @media (max-width: 1100px) {
-  .modules-scheduling__layout {
-    grid-template-columns: 1fr;
-  }
-
   .modules-scheduling__calendar-card .modules-calendar {
     height: calc(100vh - 240px);
     min-height: 540px;

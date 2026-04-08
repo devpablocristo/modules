@@ -76,8 +76,11 @@ type AvailabilityRuleModel struct {
 	ResourceID             *uuid.UUID `gorm:"type:uuid;index"`
 	Kind                   string     `gorm:"not null"`
 	Weekday                int
-	StartTime              time.Time `gorm:"column:start_time"`
-	EndTime                time.Time `gorm:"column:end_time"`
+	// Postgres column is `time without time zone`. The lib/pq driver returns it
+	// as a string ("HH:MM:SS"), so we keep the model field as string and let
+	// the mappers convert to/from time.Time using parseClock / formatClock.
+	StartTime              string `gorm:"column:start_time;type:time"`
+	EndTime                string `gorm:"column:end_time;type:time"`
 	SlotGranularityMinutes *int
 	ValidFrom              *time.Time
 	ValidUntil             *time.Time

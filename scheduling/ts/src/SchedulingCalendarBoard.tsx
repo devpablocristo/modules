@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { EventClickArg, EventContentArg } from '@fullcalendar/core';
+import type { EventClickArg, EventContentArg, EventInput } from '@fullcalendar/core';
 import FullCalendar from '@fullcalendar/react';
 import { confirmAction } from '@devpablocristo/core-browser';
 import {
@@ -24,6 +24,13 @@ import {
   type SchedulingBookingModalState,
 } from './SchedulingBookingModal';
 import {
+  BlockedRangeModal,
+  blockedRangeDraftFromRange,
+  emptyBlockedRangeDraft,
+  type BlockedRangeDraft,
+  type BlockedRangeModalState,
+} from './BlockedRangeModal';
+import {
   buildFullCalendarEventInputs,
   buildSchedulingCreateModalStateFromSlot,
   buildSchedulingCreateModalStateFromStart,
@@ -31,12 +38,16 @@ import {
   buildSchedulingCalendarEvents,
   buildSchedulingDetailsModalState,
   buildSlotIdentity,
+  buildSyntheticTimeSlotFromEditor,
+  calendarSelectionAllowedWithBuffers,
   resolveBookingDisplayTitle,
   toDateInputValue as toDateInputValueFromIso,
   toTimeInputValue,
 } from './schedulingCalendarLogic';
 import type {
   AvailabilityRule,
+  BlockedRange,
+  BlockedRangePayload,
   Booking,
   BookingStatus,
   Branch,
@@ -61,7 +72,21 @@ const schedulingKeys = {
     ['scheduling', 'visible-slots-range', branchId ?? 'none', serviceId ?? 'none', resourceId ?? 'any', start, end] as const,
   bookingsRange: (branchId: string | null, start: string, end: string) =>
     ['scheduling', 'bookings-range', branchId ?? 'none', start, end] as const,
+  blockedRangesRange: (branchId: string | null, start: string, end: string) =>
+    ['scheduling', 'blocked-ranges-range', branchId ?? 'none', start, end] as const,
 };
+
+/** Referencia estable cuando aún no hay datos de slots (evita loop en efecto de sync del modal). */
+const emptySlotOptions: TimeSlot[] = [];
+
+/** RFC3339 sin fracciones (alinea payloads con slots del API y expectativas de tests). */
+function schedulingInstantRFC3339(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) {
+    return iso;
+  }
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
 
 export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalendarCopy> = {
   en: {
@@ -144,6 +169,8 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     keepEditing: 'Keep editing',
     discard: 'Discard',
     resizeLockedMessage: 'This calendar event keeps the duration defined by the service.',
+    resizeBookingTitle: 'Resize booking',
+    resizeBookingDescription: 'Do you want to update this booking with the new duration?',
     searchPlaceholder: 'Search events, customers, resources…',
     statuses: {
       hold: 'On hold',
@@ -156,6 +183,25 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
       no_show: 'No show',
       expired: 'Expired',
     },
+    blockedRangeAction: 'Block time',
+    blockedRangeEyebrow: 'Calendar block',
+    blockedRangeCreateTitle: 'Block time',
+    blockedRangeEditTitle: 'Edit block',
+    blockedRangeKindLabel: 'Type',
+    blockedRangeKindOptions: {
+      manual: 'Personal block',
+      holiday: 'Holiday',
+      maintenance: 'Maintenance',
+      leave: 'Leave',
+    },
+    blockedRangeReasonLabel: 'Reason',
+    blockedRangeReasonPlaceholder: 'Meeting with supplier, vacation…',
+    blockedRangeCreate: 'Save block',
+    blockedRangeUpdate: 'Update block',
+    blockedRangeDelete: 'Delete block',
+    blockedRangeDeleteTitle: 'Delete this block?',
+    blockedRangeDeleteDescription: 'The blocked time will be removed and the slot becomes available again.',
+    blockedRangeFallbackTitle: 'Blocked',
   },
   es: {
     branchLabel: 'Sucursal',
@@ -237,6 +283,8 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     keepEditing: 'Seguir editando',
     discard: 'Descartar',
     resizeLockedMessage: 'Este evento del calendario mantiene la duración definida por el servicio.',
+    resizeBookingTitle: 'Cambiar duración del turno',
+    resizeBookingDescription: '¿Querés actualizar este turno con la nueva duración?',
     searchPlaceholder: 'Buscar eventos, clientes, recursos…',
     statuses: {
       hold: 'En espera',
@@ -249,6 +297,25 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
       no_show: 'No-show',
       expired: 'Expirada',
     },
+    blockedRangeAction: 'Bloquear horario',
+    blockedRangeEyebrow: 'Bloqueo de agenda',
+    blockedRangeCreateTitle: 'Bloquear horario',
+    blockedRangeEditTitle: 'Editar bloqueo',
+    blockedRangeKindLabel: 'Tipo',
+    blockedRangeKindOptions: {
+      manual: 'Bloqueo personal',
+      holiday: 'Feriado',
+      maintenance: 'Mantenimiento',
+      leave: 'Licencia',
+    },
+    blockedRangeReasonLabel: 'Motivo',
+    blockedRangeReasonPlaceholder: 'Reunión con proveedor, vacaciones…',
+    blockedRangeCreate: 'Guardar bloqueo',
+    blockedRangeUpdate: 'Actualizar bloqueo',
+    blockedRangeDelete: 'Eliminar bloqueo',
+    blockedRangeDeleteTitle: '¿Eliminar este bloqueo?',
+    blockedRangeDeleteDescription: 'El horario bloqueado se eliminará y volverá a estar disponible.',
+    blockedRangeFallbackTitle: 'Bloqueado',
   },
 };
 
@@ -364,10 +431,6 @@ function matchesCreateEditorSlot(editor: SchedulingBookingCreateEditor, slot: Ti
   );
 }
 
-function resolveSlotIdentityFromRange(resourceId: string, start: Date, end: Date): string {
-  return buildSlotIdentity(resourceId, start.toISOString(), end.toISOString());
-}
-
 export function SchedulingCalendar({
   client,
   searchQuery = '',
@@ -390,7 +453,20 @@ export function SchedulingCalendar({
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(initialResourceId ?? null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [modalState, setModalState] = useState<SchedulingBookingModalState>({ open: false });
+  const [blockedModalState, setBlockedModalState] = useState<BlockedRangeModalState>({ open: false });
   const deferredSearch = useDeferredValue(searchQuery);
+
+  // useMutation ejecuta mutationFn en un tick posterior; sin ref el closure puede ver modalState cerrado o slot null.
+  const createBookingContextRef = useRef({
+    branchId: selectedBranchId,
+    serviceId: selectedServiceId,
+    modal: modalState,
+  });
+  createBookingContextRef.current = {
+    branchId: selectedBranchId,
+    serviceId: selectedServiceId,
+    modal: modalState,
+  };
 
   const copy = { ...schedulingCalendarCopyPresets[resolveSchedulingCopyLocale(locale)], ...copyOverrides };
 
@@ -425,19 +501,6 @@ export function SchedulingCalendar({
     queryFn: () => client.getDashboard(selectedBranchId, focusedDate),
     enabled: Boolean(selectedBranchId),
     staleTime: 20_000,
-  });
-
-  const slotsQuery = useQuery<TimeSlot[]>({
-    queryKey: schedulingKeys.slots(selectedBranchId, selectedServiceId, selectedResourceId, focusedDate),
-    queryFn: () =>
-      client.listSlots({
-        branchId: selectedBranchId ?? '',
-        serviceId: selectedServiceId ?? '',
-        resourceId: selectedResourceId,
-        date: focusedDate,
-      }),
-    enabled: Boolean(selectedBranchId && selectedServiceId),
-    staleTime: 10_000,
   });
 
   const createEditorDate = modalState.open && modalState.mode === 'create' ? modalState.editor.date : focusedDate;
@@ -514,6 +577,34 @@ export function SchedulingCalendar({
     staleTime: 10_000,
   });
 
+  const blockedRangesQuery = useQuery<BlockedRange[]>({
+    queryKey: schedulingKeys.blockedRangesRange(
+      selectedBranchId,
+      rangeDates[0] ?? focusedDate,
+      rangeDates[rangeDates.length - 1] ?? focusedDate,
+    ),
+    queryFn: async () => {
+      if (!selectedBranchId || rangeDates.length === 0) {
+        return [];
+      }
+      const batches = await Promise.all(
+        rangeDates.map((date) =>
+          client.listBlockedRanges({
+            branchId: selectedBranchId,
+            date,
+          }),
+        ),
+      );
+      const seen = new Map<string, BlockedRange>();
+      for (const item of batches.flat()) {
+        seen.set(item.id, item);
+      }
+      return Array.from(seen.values()).sort((left, right) => left.start_at.localeCompare(right.start_at));
+    },
+    enabled: Boolean(selectedBranchId && rangeDates.length > 0),
+    staleTime: 10_000,
+  });
+
   const branches = branchesQuery.data ?? [];
   const services = servicesQuery.data ?? [];
   const resources = resourcesQuery.data ?? [];
@@ -557,11 +648,6 @@ export function SchedulingCalendar({
     }
     return grouped;
   }, [visibleSlots]);
-
-  const visibleSlotIdentities = useMemo(
-    () => new Set(visibleSlots.map((slot) => buildSlotIdentity(slot.resource_id, slot.start_at, slot.end_at))),
-    [visibleSlots],
-  );
 
   const businessHours = useMemo(
     () => buildSchedulingBusinessHours(availabilityRules, selectedResourceId),
@@ -607,14 +693,73 @@ export function SchedulingCalendar({
           rangeDates[rangeDates.length - 1] ?? focusedDate,
         ),
       }),
+      queryClient.invalidateQueries({ queryKey: ['scheduling', 'blocked-ranges-range'] }),
     ]);
   };
 
+  const buildBlockedRangePayload = (draft: BlockedRangeDraft, branchId: string): BlockedRangePayload => {
+    const startAt = new Date(`${draft.date}T${draft.startTime}:00`).toISOString();
+    const endAt = new Date(`${draft.date}T${draft.endTime}:00`).toISOString();
+    return {
+      branch_id: branchId,
+      resource_id: draft.resourceId || null,
+      kind: draft.kind,
+      reason: draft.reason.trim(),
+      start_at: startAt,
+      end_at: endAt,
+      all_day: false,
+    };
+  };
+
+  const createBlockedRangeMutation = useMutation<BlockedRange, Error, BlockedRangeDraft>({
+    mutationFn: async (draft) => {
+      if (!selectedBranchId) {
+        throw new Error('missing branch');
+      }
+      return client.createBlockedRange(buildBlockedRangePayload(draft, selectedBranchId));
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      setBlockedModalState({ open: false });
+      await invalidateSchedule();
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
+  const updateBlockedRangeMutation = useMutation<BlockedRange, Error, { id: string; draft: BlockedRangeDraft }>({
+    mutationFn: async ({ id, draft }) => {
+      if (!selectedBranchId) {
+        throw new Error('missing branch');
+      }
+      return client.updateBlockedRange(id, buildBlockedRangePayload(draft, selectedBranchId));
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      setBlockedModalState({ open: false });
+      await invalidateSchedule();
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
+  const deleteBlockedRangeMutation = useMutation<void, Error, string>({
+    mutationFn: async (id) => {
+      await client.deleteBlockedRange(id);
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      setBlockedModalState({ open: false });
+      await invalidateSchedule();
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
   const createBookingMutation = useMutation<Booking, Error, SchedulingBookingDraft>({
     mutationFn: async (draft: SchedulingBookingDraft) => {
-      if (!selectedBranchId || !selectedServiceId || !modalState.open || modalState.mode !== 'create' || !modalState.slot) {
+      const { branchId, serviceId, modal } = createBookingContextRef.current;
+      if (!branchId || !serviceId || !modal.open || modal.mode !== 'create' || !modal.slot) {
         throw new Error('missing scheduling context');
       }
+      const slot = modal.slot;
       const recurrenceMode = draft.recurrence.mode;
       const interval = Number.parseInt(draft.recurrence.interval, 10);
       const count = Number.parseInt(draft.recurrence.count, 10);
@@ -631,17 +776,18 @@ export function SchedulingCalendar({
                 (recurrenceMode === 'custom' ? draft.recurrence.frequency : recurrenceMode) === 'weekly'
                   ? draft.recurrence.byWeekday.length
                     ? draft.recurrence.byWeekday
-                    : [new Date(modalState.slot.start_at).getUTCDay()]
+                    : [new Date(slot.start_at).getUTCDay()]
                   : undefined,
             };
       return client.createBooking({
-        branch_id: selectedBranchId,
-        service_id: selectedServiceId,
-        resource_id: modalState.slot.resource_id,
+        branch_id: branchId,
+        service_id: serviceId,
+        resource_id: slot.resource_id,
         customer_name: draft.customerName.trim(),
         customer_phone: draft.customerPhone.trim(),
         customer_email: draft.customerEmail.trim() || undefined,
-        start_at: modalState.slot.start_at,
+        start_at: schedulingInstantRFC3339(slot.start_at),
+        ...(recurrence ? {} : { end_at: schedulingInstantRFC3339(slot.end_at) }),
         notes: draft.notes.trim() || undefined,
         metadata: draft.title.trim() ? { title: draft.title.trim() } : undefined,
         recurrence,
@@ -708,23 +854,87 @@ export function SchedulingCalendar({
     });
   }, [bookingsQuery.data, selectedServiceId, selectedResourceId, scheduleServices, filteredResources, deferredSearch, copy.statuses]);
 
-  const slotItems = useMemo(() => {
-    const source = slotsQuery.data ?? [];
-    return source.filter((slot) =>
-      matchesSearch(deferredSearch, [
-        slot.resource_name,
-        formatSchedulingClock(slot.start_at, locale),
-        formatSchedulingClock(slot.end_at, locale),
-        selectedService?.name,
-      ]),
+  /** Reservas para colisiones en el calendario (sin filtro de búsqueda: no ocultar conflictos). */
+  const collisionBookings = useMemo(() => {
+    const source = bookingsQuery.data ?? [];
+    return source.filter((booking) => {
+      if (selectedServiceId && booking.service_id !== selectedServiceId) {
+        return false;
+      }
+      if (selectedResourceId && booking.resource_id !== selectedResourceId) {
+        return false;
+      }
+      return true;
+    });
+  }, [bookingsQuery.data, selectedServiceId, selectedResourceId]);
+
+  const filteredFreeSlots = useMemo(() => {
+    return visibleSlots.filter(
+      (slot) =>
+        slot.remaining > 0 &&
+        matchesSearch(deferredSearch, [
+          slot.resource_name,
+          formatSchedulingClock(slot.start_at, locale),
+          formatSchedulingClock(slot.end_at, locale),
+          selectedService?.name,
+        ]),
     );
-  }, [slotsQuery.data, deferredSearch, selectedService?.name, locale]);
+  }, [visibleSlots, deferredSearch, selectedService?.name, locale]);
+
+  const freeSlotCalendarEvents = useMemo<EventInput[]>(
+    () =>
+      filteredFreeSlots.map((slot) => ({
+        id: `free-slot:${buildSlotIdentity(slot.resource_id, slot.start_at, slot.end_at)}`,
+        title: copy.openBooking,
+        start: slot.start_at,
+        end: slot.end_at,
+        backgroundColor: '#d1fae5',
+        borderColor: '#34d399',
+        textColor: '#065f46',
+        classNames: ['modules-scheduling__calendar-event--free-slot'],
+        editable: false,
+        extendedProps: {
+          freeTimeSlot: slot,
+        },
+      })),
+    [filteredFreeSlots, copy.openBooking],
+  );
 
   const calendarEvents = useMemo(
     () => buildSchedulingCalendarEvents(filteredBookings, scheduleServices, filteredResources, eventColor),
     [filteredBookings, scheduleServices, filteredResources],
   );
-  const fullCalendarEventInputs = useMemo(() => buildFullCalendarEventInputs(calendarEvents), [calendarEvents]);
+
+  const blockedRanges = blockedRangesQuery.data ?? [];
+
+  const blockedRangeEventInputs = useMemo<EventInput[]>(
+    () =>
+      blockedRanges.map((range) => ({
+        id: `blocked:${range.id}`,
+        title: range.reason || copy.blockedRangeKindOptions[range.kind] || copy.blockedRangeFallbackTitle,
+        start: range.start_at,
+        end: range.end_at,
+        backgroundColor: '#9ca3af',
+        borderColor: '#6b7280',
+        textColor: '#111827',
+        classNames: ['modules-scheduling__calendar-event--blocked'],
+        editable: true,
+        durationEditable: true,
+        extendedProps: {
+          blockedRange: range,
+        },
+      })),
+    [blockedRanges, copy.blockedRangeKindOptions, copy.blockedRangeFallbackTitle],
+  );
+
+  const fullCalendarEventInputs = useMemo(
+    () => [
+      ...freeSlotCalendarEvents,
+      ...blockedRangeEventInputs,
+      ...buildFullCalendarEventInputs(calendarEvents),
+    ],
+    [freeSlotCalendarEvents, blockedRangeEventInputs, calendarEvents],
+  );
 
   const resolveDaySlots = (value: Date): TimeSlot[] => visibleSlotsByDate.get(toDateInputValue(value)) ?? [];
 
@@ -732,28 +942,89 @@ export function SchedulingCalendar({
     if (!selectedService || !info.start || !info.end) {
       return false;
     }
-    const startAt = info.start.toISOString();
-    const endAt = info.end.toISOString();
-    if (selectedResourceId) {
-      return visibleSlotIdentities.has(buildSlotIdentity(selectedResourceId, startAt, endAt));
+    if (info.end.getTime() <= info.start.getTime()) {
+      return false;
     }
-    return visibleSlots.some((slot) => slot.start_at === startAt && slot.end_at === endAt);
+    const resourceIds = filteredResources.map((r) => r.id);
+    return calendarSelectionAllowedWithBuffers({
+      start: info.start,
+      end: info.end,
+      service: selectedService,
+      resourceIds,
+      bookings: collisionBookings,
+      blockedRanges,
+    });
   };
 
   const handleEventAllow = (dropInfo: CalendarEventAllowArg, draggedEvent: CalendarDraggedEventArg) => {
-    if (!draggedEvent) {
+    if (!draggedEvent || !dropInfo.start || !dropInfo.end) {
       return false;
     }
-    const calendarEvent = draggedEvent.extendedProps.calendarEvent as CalendarEvent | undefined;
-    const sourceBooking = calendarEvent?.sourceBooking;
-    const resourceId = sourceBooking?.resource_id ?? selectedResourceId ?? null;
-    if (!resourceId || !dropInfo.start || !dropInfo.end) {
-      return false;
+    const ext = draggedEvent.extendedProps as {
+      blockedRange?: BlockedRange;
+      calendarEvent?: CalendarEvent;
+    };
+    const blockedRange = ext.blockedRange;
+    const sourceBooking = ext.calendarEvent?.sourceBooking;
+    if (blockedRange) {
+      const resourceIds = blockedRange.resource_id
+        ? [blockedRange.resource_id]
+        : filteredResources.map((r) => r.id);
+      if (!resourceIds.length) {
+        return false;
+      }
+      return calendarSelectionAllowedWithBuffers({
+        start: dropInfo.start,
+        end: dropInfo.end,
+        service: selectedService,
+        resourceIds,
+        bookings: collisionBookings,
+        blockedRanges,
+        occupancyIsExplicit: true,
+        excludeBlockedRangeId: blockedRange.id,
+      });
     }
-    return visibleSlotIdentities.has(resolveSlotIdentityFromRange(resourceId, dropInfo.start, dropInfo.end));
+    if (sourceBooking) {
+      const dragService =
+        scheduleServices.find((s) => s.id === sourceBooking.service_id) ?? selectedService;
+      if (!dragService) {
+        return false;
+      }
+      return calendarSelectionAllowedWithBuffers({
+        start: dropInfo.start,
+        end: dropInfo.end,
+        service: dragService,
+        resourceIds: [sourceBooking.resource_id],
+        bookings: collisionBookings,
+        blockedRanges,
+        excludeBookingId: sourceBooking.id,
+      });
+    }
+    return true;
   };
 
   const renderEventContent = (info: EventContentArg) => {
+    const freeSlot = info.event.extendedProps.freeTimeSlot as TimeSlot | undefined;
+    if (freeSlot) {
+      const listView = info.view.type.startsWith('list');
+      const rangeLabel = `${formatSchedulingClock(freeSlot.start_at, locale)} – ${formatSchedulingClock(freeSlot.end_at, locale)}`;
+      const compactRange = `${formatSchedulingCompactClock(freeSlot.start_at, locale)}-${formatSchedulingCompactClock(freeSlot.end_at, locale)}`;
+      const secondary = listView
+        ? `${rangeLabel} · ${freeSlot.resource_name} · ${copy.slotRemainingLabel}: ${freeSlot.remaining}`
+        : `${compactRange} · ${freeSlot.resource_name} · ${copy.slotRemainingLabel} ${freeSlot.remaining}`;
+      return (
+        <div
+          className={`modules-scheduling__calendar-event modules-scheduling__calendar-event--free-slot${listView ? ' modules-scheduling__calendar-event--list' : ''}`}
+        >
+          <div className="modules-scheduling__calendar-event-top">
+            <strong>{copy.openBooking}</strong>
+          </div>
+          <div className="modules-scheduling__calendar-event-meta">
+            <span>{secondary}</span>
+          </div>
+        </div>
+      );
+    }
     const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
     if (!calendarEvent) {
       return <span>{info.event.title}</span>;
@@ -786,8 +1057,16 @@ export function SchedulingCalendar({
   };
 
   const openCreateBookingModal = (slot: TimeSlot, resourceName?: string) => {
+    const dayKey = toDateInputValueFromIso(slot.start_at);
+    const sameDaySlots = visibleSlots.filter((s) => toDateInputValueFromIso(s.start_at) === dayKey);
     setModalState(
-      buildSchedulingCreateModalStateFromSlot(slot, selectedService, slotsQuery.data ?? [], filteredResources, resourceName),
+      buildSchedulingCreateModalStateFromSlot(
+        slot,
+        selectedService,
+        sameDaySlots.length > 0 ? sameDaySlots : [slot],
+        filteredResources,
+        resourceName,
+      ),
     );
   };
 
@@ -810,22 +1089,34 @@ export function SchedulingCalendar({
     if (!(modalState.open && modalState.mode === 'create')) {
       return;
     }
-    const slotOptions = createSlotsQuery.data ?? [];
-    const nextSlot = slotOptions.find((slot) => matchesCreateEditorSlot(modalState.editor, slot)) ?? null;
-    const nextResourceName =
-      filteredResources.find((resource) => resource.id === modalState.editor.resourceId)?.name ??
-      slotOptions.find((slot) => slot.resource_id === modalState.editor.resourceId)?.resource_name ??
-      modalState.resourceName;
+    const slotOptions = createSlotsQuery.data ?? emptySlotOptions;
 
     setModalState((current) => {
       if (!(current.open && current.mode === 'create')) {
         return current;
       }
-      const nextValidationMessage = nextSlot || createSlotsQuery.isFetching ? null : copy.unavailableSlotMessage;
+      const editor = current.editor;
+      const resourceMatchInner = filteredResources.find((resource) => resource.id === editor.resourceId);
+      const matchedOrSynthetic =
+        slotOptions.find((slot) => matchesCreateEditorSlot(editor, slot)) ??
+        (current.service
+          ? buildSyntheticTimeSlotFromEditor(editor, current.service, resourceMatchInner, selectedBranch)
+          : null);
+      // Mientras llegan slots/recursos, no pisar el slot que ya armó el calendario (date click / drag).
+      const slotToSet =
+        matchedOrSynthetic ?? (createSlotsQuery.isFetching && current.slot ? current.slot : null);
+
+      const nextResourceName =
+        resourceMatchInner?.name ??
+        slotOptions.find((slot) => slot.resource_id === editor.resourceId)?.resource_name ??
+        current.resourceName;
+
+      const nextValidationMessage =
+        slotToSet || createSlotsQuery.isFetching ? null : copy.unavailableSlotMessage;
       const sameSlot =
-        current.slot?.resource_id === nextSlot?.resource_id &&
-        current.slot?.start_at === nextSlot?.start_at &&
-        current.slot?.end_at === nextSlot?.end_at;
+        current.slot?.resource_id === slotToSet?.resource_id &&
+        current.slot?.start_at === slotToSet?.start_at &&
+        current.slot?.end_at === slotToSet?.end_at;
       if (
         sameSlot &&
         current.slotOptions === slotOptions &&
@@ -837,7 +1128,7 @@ export function SchedulingCalendar({
       }
       return {
         ...current,
-        slot: nextSlot,
+        slot: slotToSet,
         slotOptions,
         resourceOptions: filteredResources.map((resource) => ({
           id: resource.id,
@@ -854,6 +1145,7 @@ export function SchedulingCalendar({
     createSlotsQuery.isFetching,
     copy.unavailableSlotMessage,
     filteredResources,
+    selectedBranch,
   ]);
 
   const openCreateFromStart = (start: Date, startAt: string, end: Date | null = null, endAt: string | null = null) => {
@@ -873,7 +1165,42 @@ export function SchedulingCalendar({
     }
   };
 
+  const openBlockedRangeEditModal = (range: BlockedRange) => {
+    setBlockedModalState({
+      open: true,
+      mode: 'edit',
+      id: range.id,
+      branchId: range.branch_id,
+      resourceOptions: filteredResources.map((resource) => ({ id: resource.id, name: resource.name })),
+      initial: blockedRangeDraftFromRange(range),
+    });
+  };
+
+  const openBlockedRangeCreateModal = () => {
+    if (!selectedBranchId) {
+      return;
+    }
+    setBlockedModalState({
+      open: true,
+      mode: 'create',
+      branchId: selectedBranchId,
+      resourceId: selectedResourceId,
+      resourceOptions: filteredResources.map((resource) => ({ id: resource.id, name: resource.name })),
+      initial: { ...emptyBlockedRangeDraft(focusedDate), resourceId: selectedResourceId ?? '' },
+    });
+  };
+
   const handleCalendarEventClick = (info: EventClickArg) => {
+    const freeSlot = info.event.extendedProps.freeTimeSlot as TimeSlot | undefined;
+    if (freeSlot) {
+      openCreateBookingModal(freeSlot, freeSlot.resource_name);
+      return;
+    }
+    const blockedRange = info.event.extendedProps.blockedRange as BlockedRange | undefined;
+    if (blockedRange) {
+      openBlockedRangeEditModal(blockedRange);
+      return;
+    }
     const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
     const sourceBooking = calendarEvent?.sourceBooking;
     if (!sourceBooking) {
@@ -906,16 +1233,20 @@ export function SchedulingCalendar({
     }
   };
 
-  const handleCalendarEventDrop = async (info: CalendarEventDropArg) => {
-    const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
-    const sourceBooking = calendarEvent?.sourceBooking;
-    if (!sourceBooking) {
+  const persistBookingReschedule = async (
+    info: CalendarEventDropArg | CalendarEventResizeArg,
+    sourceBooking: Booking,
+    confirmCopy: { title: string; description: string },
+  ) => {
+    const newStart = info.event.start;
+    const newEnd = info.event.end;
+    if (!newStart || !newEnd) {
       info.revert();
       return;
     }
     const confirmed = await confirmAction({
-      title: copy.dragRescheduleTitle,
-      description: copy.dragRescheduleDescription,
+      title: confirmCopy.title,
+      description: confirmCopy.description,
       confirmLabel: copy.rescheduleBooking,
       cancelLabel: copy.close,
     });
@@ -928,17 +1259,78 @@ export function SchedulingCalendar({
       await client.rescheduleBooking(info.event.id, {
         branch_id: selectedBranchId ?? undefined,
         resource_id: sourceBooking.resource_id,
-        start_at: info.event.start?.toISOString() ?? info.event.startStr,
+        start_at: newStart.toISOString(),
+        end_at: newEnd.toISOString(),
       });
       await invalidateSchedule();
-    } catch {
+    } catch (error) {
       info.revert();
+      setActionError(error instanceof Error ? error.message : String(error));
     }
   };
 
-  const handleEventResize = (info: CalendarEventResizeArg) => {
-    setActionError(copy.resizeLockedMessage);
-    info.revert();
+  const persistBlockedRangeReschedule = async (
+    info: CalendarEventDropArg | CalendarEventResizeArg,
+    blockedRange: BlockedRange,
+  ) => {
+    const newStart = info.event.start;
+    const newEnd = info.event.end;
+    if (!newStart || !newEnd) {
+      info.revert();
+      return;
+    }
+    try {
+      setActionError(null);
+      await client.updateBlockedRange(blockedRange.id, {
+        branch_id: blockedRange.branch_id,
+        resource_id: blockedRange.resource_id ?? null,
+        kind: blockedRange.kind,
+        reason: blockedRange.reason,
+        start_at: newStart.toISOString(),
+        end_at: newEnd.toISOString(),
+        all_day: blockedRange.all_day,
+      });
+      await invalidateSchedule();
+    } catch (error) {
+      info.revert();
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleCalendarEventDrop = async (info: CalendarEventDropArg) => {
+    const blockedRange = info.event.extendedProps.blockedRange as BlockedRange | undefined;
+    if (blockedRange) {
+      await persistBlockedRangeReschedule(info, blockedRange);
+      return;
+    }
+    const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
+    const sourceBooking = calendarEvent?.sourceBooking;
+    if (!sourceBooking) {
+      info.revert();
+      return;
+    }
+    await persistBookingReschedule(info, sourceBooking, {
+      title: copy.dragRescheduleTitle,
+      description: copy.dragRescheduleDescription,
+    });
+  };
+
+  const handleEventResize = async (info: CalendarEventResizeArg) => {
+    const blockedRange = info.event.extendedProps.blockedRange as BlockedRange | undefined;
+    if (blockedRange) {
+      await persistBlockedRangeReschedule(info, blockedRange);
+      return;
+    }
+    const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
+    const sourceBooking = calendarEvent?.sourceBooking;
+    if (!sourceBooking) {
+      info.revert();
+      return;
+    }
+    await persistBookingReschedule(info, sourceBooking, {
+      title: copy.resizeBookingTitle,
+      description: copy.resizeBookingDescription,
+    });
   };
 
   const handleModalAction = async (action: SchedulingBookingAction, booking: Booking) => {
@@ -991,6 +1383,21 @@ export function SchedulingCalendar({
     [fullCalendarEventInputs, visibleRange],
   );
 
+  const fullCalendarLocale = resolveSchedulingCopyLocale(locale) === 'es' ? 'es' : 'en';
+
+  const fullCalendarOptions = useMemo(() => {
+    if (resolveSchedulingCopyLocale(locale) !== 'es') {
+      return undefined;
+    }
+    return {
+      titleFormat: {
+        day: '2-digit' as const,
+        month: '2-digit' as const,
+        year: 'numeric' as const,
+      },
+    };
+  }, [locale]);
+
   const loading = branchesQuery.isLoading || servicesQuery.isLoading;
 
   if (loading) {
@@ -1024,8 +1431,8 @@ export function SchedulingCalendar({
           {(copy.timelineTitle || copy.timelineDescription) && (
             <div className="card-header">
               <div>
-                {copy.timelineTitle && <h2>{copy.timelineTitle}</h2>}
-                {copy.timelineDescription && <p className="text-secondary">{copy.timelineDescription}</p>}
+                {copy.timelineTitle ? <h2>{copy.timelineTitle}</h2> : null}
+                {copy.timelineDescription ? <p className="text-secondary">{copy.timelineDescription}</p> : null}
               </div>
             </div>
           )}
@@ -1033,6 +1440,8 @@ export function SchedulingCalendar({
             calendarRef={calendarRef}
             view={view}
             title={calendarTitle}
+            locale={fullCalendarLocale}
+            calendarOptions={fullCalendarOptions ?? {}}
             loaded={!bookingsQuery.isLoading}
             onToday={() => {
               const api = calendarRef.current?.getApi();
@@ -1060,6 +1469,16 @@ export function SchedulingCalendar({
                 scrollCalendarToRelevantTime();
               });
             }}
+            toolbarTrailing={
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={openBlockedRangeCreateModal}
+                disabled={!selectedBranchId}
+              >
+                {copy.blockedRangeAction}
+              </button>
+            }
             scrollTime={timeGridViewport.scrollTime}
             scrollTimeReset={false}
             slotMinTime={timeGridViewport.slotMinTime}
@@ -1086,78 +1505,6 @@ export function SchedulingCalendar({
             }}
           />
         </div>
-
-        <aside className="card modules-scheduling__slots-card">
-          <div className="card-header">
-            <div>
-              <h2>{copy.slotsTitle}</h2>
-              <p className="text-secondary">{copy.slotsDescription}</p>
-            </div>
-          </div>
-          <div className="modules-scheduling__slots-date">
-            <span>{focusedDate}</span>
-            {selectedBranch ? <span>{selectedBranch.name}</span> : null}
-          </div>
-          {slotsQuery.isLoading ? (
-            <div className="modules-scheduling__empty">{copy.slotsLoading}</div>
-          ) : slotItems.length === 0 ? (
-            <div className="modules-scheduling__empty">{copy.slotsEmpty}</div>
-          ) : (
-            <ul className="modules-scheduling__slot-list">
-              {slotItems.map((slot) => (
-                <li key={`${slot.resource_id}:${slot.start_at}`} className="modules-scheduling__slot-card">
-                  <div className="modules-scheduling__slot-main">
-                    <strong>
-                      {formatSchedulingClock(slot.start_at, locale)} - {formatSchedulingClock(slot.end_at, locale)}
-                    </strong>
-                    <span>{slot.resource_name}</span>
-                  </div>
-                  <div className="modules-scheduling__slot-meta">
-                    <span>
-                      {copy.slotRemainingLabel}: {slot.remaining}
-                    </span>
-                    <button
-                      type="button"
-                      className="btn-primary btn-sm"
-                      onClick={() => openCreateBookingModal(slot, slot.resource_name)}
-                    >
-                      {copy.openBooking}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="modules-scheduling__results">
-            {filteredBookings.length === 0 ? (
-              <span className="text-muted">{copy.searchPlaceholder}</span>
-            ) : (
-              filteredBookings.slice(0, 6).map((booking) => {
-                const serviceName = scheduleServices.find((service) => service.id === booking.service_id)?.name;
-                const resourceName = filteredResources.find((resource) => resource.id === booking.resource_id)?.name;
-                return (
-                  <button
-                    key={booking.id}
-                    type="button"
-                    className="modules-scheduling__booking-row"
-                    onClick={() => setModalState(buildSchedulingDetailsModalState(booking, scheduleServices, filteredResources))}
-                  >
-                    <div className="modules-scheduling__booking-row-main">
-                      <strong>{resolveBookingDisplayTitle(booking)}</strong>
-                      <span>{serviceName ?? booking.service_id}</span>
-                    </div>
-                    <div className="modules-scheduling__booking-row-meta">
-                      <span>{formatSchedulingClock(booking.start_at, locale)}</span>
-                      <span className={statusClassName(booking.status)}>{copy.statuses[booking.status]}</span>
-                      <span>{resourceName ?? booking.resource_id}</span>
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </aside>
       </div>
 
       <div className="card">
@@ -1255,6 +1602,27 @@ export function SchedulingCalendar({
         }}
         onAction={async (action, booking) => {
           await handleModalAction(action, booking);
+        }}
+      />
+
+      <BlockedRangeModal
+        state={blockedModalState}
+        copy={copy}
+        saving={
+          createBlockedRangeMutation.isPending ||
+          updateBlockedRangeMutation.isPending ||
+          deleteBlockedRangeMutation.isPending
+        }
+        onClose={() => setBlockedModalState({ open: false })}
+        onSave={async (draft) => {
+          if (blockedModalState.open && blockedModalState.mode === 'edit') {
+            await updateBlockedRangeMutation.mutateAsync({ id: blockedModalState.id, draft });
+          } else {
+            await createBlockedRangeMutation.mutateAsync(draft);
+          }
+        }}
+        onDelete={async (id) => {
+          await deleteBlockedRangeMutation.mutateAsync(id);
         }}
       />
     </section>

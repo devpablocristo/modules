@@ -93,6 +93,40 @@ export type AvailabilityRule = {
   updated_at: string;
 };
 
+export type BlockedRangeKind = 'holiday' | 'manual' | 'maintenance' | 'leave';
+
+export type BlockedRange = {
+  id: string;
+  org_id: string;
+  branch_id: string;
+  resource_id?: string | null;
+  kind: BlockedRangeKind;
+  reason: string;
+  start_at: string;
+  end_at: string;
+  all_day: boolean;
+  created_by?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+};
+
+export type BlockedRangePayload = {
+  branch_id: string;
+  resource_id?: string | null;
+  kind: BlockedRangeKind;
+  reason?: string;
+  start_at: string;
+  end_at: string;
+  all_day?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type ListBlockedRangesQuery = {
+  branchId?: string | null;
+  resourceId?: string | null;
+  date?: string | null;
+};
+
 export type TimeSlot = {
   resource_id: string;
   resource_name: string;
@@ -283,6 +317,7 @@ export type CreateBookingPayload = {
   customer_phone: string;
   customer_email?: string;
   start_at: string;
+  end_at?: string;
   status?: BookingStatus;
   source?: BookingSource;
   idempotency_key?: string;
@@ -296,6 +331,7 @@ export type RescheduleBookingPayload = {
   branch_id?: string;
   resource_id?: string;
   start_at: string;
+  end_at?: string;
 };
 
 export type BookingActionResult = Booking;
@@ -596,6 +632,22 @@ export type SchedulingCalendarCopy = {
   keepEditing: string;
   discard: string;
   resizeLockedMessage: string;
+  resizeBookingTitle: string;
+  resizeBookingDescription: string;
   searchPlaceholder: string;
   statuses: SchedulingCalendarStatusCopy;
+  blockedRangeAction: string;
+  blockedRangeEyebrow: string;
+  blockedRangeCreateTitle: string;
+  blockedRangeEditTitle: string;
+  blockedRangeKindLabel: string;
+  blockedRangeKindOptions: Record<BlockedRangeKind, string>;
+  blockedRangeReasonLabel: string;
+  blockedRangeReasonPlaceholder: string;
+  blockedRangeCreate: string;
+  blockedRangeUpdate: string;
+  blockedRangeDelete: string;
+  blockedRangeDeleteTitle: string;
+  blockedRangeDeleteDescription: string;
+  blockedRangeFallbackTitle: string;
 };

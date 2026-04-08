@@ -387,14 +387,17 @@ type BookingRecurrence struct {
 }
 
 type CreateBookingInput struct {
-	BranchID       uuid.UUID
-	ServiceID      uuid.UUID
-	ResourceID     *uuid.UUID
-	PartyID        *uuid.UUID
-	CustomerName   string
-	CustomerPhone  string
-	CustomerEmail  string
-	StartAt        time.Time
+	BranchID      uuid.UUID
+	ServiceID     uuid.UUID
+	ResourceID    *uuid.UUID
+	PartyID       *uuid.UUID
+	CustomerName  string
+	CustomerPhone string
+	CustomerEmail string
+	StartAt       time.Time
+	// EndAt, si viene informado (sin Recurrence), crea un booking con duración arbitraria
+	// validada con la misma lógica que reschedule (reglas, bloqueos, solapes).
+	EndAt          *time.Time
 	Status         BookingStatus
 	Source         BookingSource
 	IdempotencyKey string
@@ -409,6 +412,7 @@ type RescheduleBookingInput struct {
 	BranchID       uuid.UUID
 	ResourceID     *uuid.UUID
 	StartAt        time.Time
+	EndAt          *time.Time
 	IdempotencyKey string
 }
 

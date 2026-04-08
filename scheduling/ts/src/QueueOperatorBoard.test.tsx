@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SchedulingClient } from './client';
 import { QueueOperatorBoard } from './QueueOperatorBoard';
@@ -110,6 +110,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
 }
 
 function renderBoard(client: SchedulingClient, locale = 'es') {
+  cleanup();
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },

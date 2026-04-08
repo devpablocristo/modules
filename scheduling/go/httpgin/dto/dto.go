@@ -63,6 +63,17 @@ type CreateBlockedRangeRequest struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
+type UpdateBlockedRangeRequest struct {
+	BranchID   string         `json:"branch_id"`
+	ResourceID *string        `json:"resource_id,omitempty"`
+	Kind       string         `json:"kind"`
+	Reason     string         `json:"reason"`
+	StartAt    string         `json:"start_at"`
+	EndAt      string         `json:"end_at"`
+	AllDay     bool           `json:"all_day"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+}
+
 type CreateBookingRequest struct {
 	BranchID       string                    `json:"branch_id"`
 	ServiceID      string                    `json:"service_id"`
@@ -72,6 +83,7 @@ type CreateBookingRequest struct {
 	CustomerPhone  string                    `json:"customer_phone"`
 	CustomerEmail  string                    `json:"customer_email,omitempty"`
 	StartAt        string                    `json:"start_at"`
+	EndAt          *string                   `json:"end_at,omitempty"`
 	Status         string                    `json:"status,omitempty"`
 	Source         string                    `json:"source,omitempty"`
 	IdempotencyKey string                    `json:"idempotency_key,omitempty"`
@@ -93,6 +105,7 @@ type RescheduleBookingRequest struct {
 	BranchID   *string `json:"branch_id,omitempty"`
 	ResourceID *string `json:"resource_id,omitempty"`
 	StartAt    string  `json:"start_at"`
+	EndAt      *string `json:"end_at,omitempty"`
 }
 
 type CancelBookingRequest struct {

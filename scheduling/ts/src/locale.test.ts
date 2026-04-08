@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatSchedulingClock,
   formatSchedulingCompactClock,
+  formatSchedulingDateOnly,
   formatSchedulingDateTime,
   formatSchedulingWeekdayNarrow,
   resolveSchedulingCopyLocale,
@@ -17,9 +18,15 @@ describe('scheduling locale helpers', () => {
   it('formats date and time values with the provided locale', () => {
     expect(formatSchedulingClock('2099-12-01T10:00:00Z', 'es-AR')).not.toBe(formatSchedulingClock('2099-12-01T10:00:00Z', 'en-US'));
     expect(formatSchedulingCompactClock('2099-12-01T10:00:00Z', 'es-AR')).toMatch(/\d{2}:\d{2}/);
-    expect(formatSchedulingDateTime('2099-12-01T10:00:00Z', 'es-AR')).toMatch(/dic/i);
+    expect(formatSchedulingDateTime('2099-12-01T10:00:00Z', 'es-AR')).toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/);
     expect(formatSchedulingDateTime('2099-12-01T10:00:00Z', 'en-US')).toMatch(/dec/i);
     expect(formatSchedulingDateTime('invalid-date', 'es-AR')).toBe('invalid-date');
+  });
+
+  it('formats YYYY-MM-DD for display without exposing raw ISO date', () => {
+    expect(formatSchedulingDateOnly('2099-04-08', 'es-AR')).toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/);
+    expect(formatSchedulingDateOnly('2099-04-08', 'es-AR')).not.toContain('2099-04');
+    expect(formatSchedulingDateOnly('not-a-date', 'es-AR')).toBe('not-a-date');
   });
 
   it('formats weekday picks with the provided locale', () => {

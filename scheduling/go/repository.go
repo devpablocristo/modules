@@ -265,12 +265,12 @@ func (r *Repository) ListApplicableAvailabilityRules(ctx context.Context, orgID,
 }
 
 func (r *Repository) CreateAvailabilityRule(ctx context.Context, in schedulingdomain.AvailabilityRule) (schedulingdomain.AvailabilityRule, error) {
-	startTime, err := parseClock(in.StartTime)
-	if err != nil {
+	// Validate clock format up front; the actual storage is the canonical
+	// "HH:MM" string so postgres `time` columns accept it without conversion.
+	if _, err := parseClock(in.StartTime); err != nil {
 		return schedulingdomain.AvailabilityRule{}, err
 	}
-	endTime, err := parseClock(in.EndTime)
-	if err != nil {
+	if _, err := parseClock(in.EndTime); err != nil {
 		return schedulingdomain.AvailabilityRule{}, err
 	}
 	now := time.Now().UTC()
@@ -281,8 +281,8 @@ func (r *Repository) CreateAvailabilityRule(ctx context.Context, in schedulingdo
 		ResourceID:             in.ResourceID,
 		Kind:                   string(in.Kind),
 		Weekday:                in.Weekday,
-		StartTime:              startTime,
-		EndTime:                endTime,
+		StartTime:              normalizeClockString(in.StartTime),
+		EndTime:                normalizeClockString(in.EndTime),
 		SlotGranularityMinutes: in.SlotGranularityMinutes,
 		ValidFrom:              in.ValidFrom,
 		ValidUntil:             in.ValidUntil,
@@ -361,6 +361,49 @@ func (r *Repository) CreateBlockedRange(ctx context.Context, in schedulingdomain
 		return schedulingdomain.BlockedRange{}, err
 	}
 	return toDomainBlockedRange(row), nil
+}
+
+func (r *Repository) UpdateBlockedRange(ctx context.Context, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error) {
+	updates := map[string]any{
+		"branch_id":   in.BranchID,
+		"resource_id": in.ResourceID,
+		"kind":        string(in.Kind),
+		"reason":      strings.TrimSpace(in.Reason),
+		"start_at":    in.StartAt.UTC(),
+		"end_at":      in.EndAt.UTC(),
+		"all_day":     in.AllDay,
+		"metadata":    mustJSON(in.Metadata),
+	}
+	res := r.db.WithContext(ctx).
+		Model(&schedulingmodels.BlockedRangeModel{}).
+		Where("org_id = ? AND id = ?", in.OrgID, in.ID).
+		Updates(updates)
+	if res.Error != nil {
+		return schedulingdomain.BlockedRange{}, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return schedulingdomain.BlockedRange{}, gorm.ErrRecordNotFound
+	}
+	var row schedulingmodels.BlockedRangeModel
+	if err := r.db.WithContext(ctx).
+		Where("org_id = ? AND id = ?", in.OrgID, in.ID).
+		Take(&row).Error; err != nil {
+		return schedulingdomain.BlockedRange{}, err
+	}
+	return toDomainBlockedRange(row), nil
+}
+
+func (r *Repository) DeleteBlockedRange(ctx context.Context, orgID, id uuid.UUID) error {
+	res := r.db.WithContext(ctx).
+		Where("org_id = ? AND id = ?", orgID, id).
+		Delete(&schedulingmodels.BlockedRangeModel{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *Repository) CountBookingOverlaps(ctx context.Context, orgID, resourceID uuid.UUID, occupiesFrom, occupiesUntil time.Time, excludeBookingID *uuid.UUID) (int64, error) {
@@ -1282,8 +1325,8 @@ func toDomainAvailabilityRule(row schedulingmodels.AvailabilityRuleModel) schedu
 		ResourceID:             row.ResourceID,
 		Kind:                   schedulingdomain.AvailabilityRuleKind(row.Kind),
 		Weekday:                row.Weekday,
-		StartTime:              formatClock(row.StartTime),
-		EndTime:                formatClock(row.EndTime),
+		StartTime:              normalizeClockString(row.StartTime),
+		EndTime:                normalizeClockString(row.EndTime),
 		SlotGranularityMinutes: row.SlotGranularityMinutes,
 		ValidFrom:              row.ValidFrom,
 		ValidUntil:             row.ValidUntil,
@@ -1459,11 +1502,19 @@ func parseClock(raw string) (time.Time, error) {
 	return corescheduling.ParseClock(raw)
 }
 
-func formatClock(v time.Time) string {
-	if v.IsZero() {
+// normalizeClockString reduces "HH:MM:SS" or "HH:MM:SS.000" wire-format values
+// from postgres `time` columns to the canonical "HH:MM" string used by the
+// domain layer. Empty input passes through unchanged.
+func normalizeClockString(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
 		return ""
 	}
-	return v.Format("15:04")
+	t, err := corescheduling.ParseClock(raw)
+	if err != nil {
+		return raw
+	}
+	return t.Format("15:04")
 }
 
 func dedupeUUIDs(values []uuid.UUID) []uuid.UUID {

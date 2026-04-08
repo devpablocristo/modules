@@ -24,6 +24,15 @@ export {
   type PublicSchedulingClient,
   type SchedulingClient,
 } from './client';
+export {
+  formatSchedulingClock,
+  formatSchedulingCompactClock,
+  formatSchedulingDateOnly,
+  formatSchedulingDateTime,
+  formatSchedulingWeekdayNarrow,
+  resolveSchedulingCopyLocale,
+} from './locale';
+export type { SchedulingCopyLocale } from './locale';
 export type {
   Booking,
   Branch,

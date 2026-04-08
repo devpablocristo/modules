@@ -21,12 +21,12 @@ import (
 )
 
 var (
-	errQueueInactive        = errors.New("scheduling: queue inactive")
-	errRemoteJoinDisabled   = errors.New("scheduling: remote join disabled")
-	errBookingOverlap       = errors.New("scheduling: booking overlap")
-	errNoTicketWaiting      = errors.New("scheduling: no ticket waiting")
-	errTransitionNotAllowed = errors.New("scheduling: transition not allowed")
-	errSlotNotAvailable     = errors.New("scheduling: slot not available")
+	errQueueInactive            = errors.New("scheduling: queue inactive")
+	errRemoteJoinDisabled       = errors.New("scheduling: remote join disabled")
+	errBookingOverlap           = errors.New("scheduling: booking overlap")
+	errNoTicketWaiting          = errors.New("scheduling: no ticket waiting")
+	errTransitionNotAllowed     = errors.New("scheduling: transition not allowed")
+	errNoDiscreteSchedulingSlot = errors.New("scheduling: no discrete slot match")
 )
 
 type RepositoryPort interface {
@@ -46,6 +46,8 @@ type RepositoryPort interface {
 	ListBlockedRanges(ctx context.Context, orgID uuid.UUID, branchID, resourceID *uuid.UUID, day *time.Time) ([]schedulingdomain.BlockedRange, error)
 	ListBlockedRangesBetween(ctx context.Context, orgID, branchID uuid.UUID, resourceID *uuid.UUID, startAt, endAt time.Time) ([]schedulingdomain.BlockedRange, error)
 	CreateBlockedRange(ctx context.Context, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
+	UpdateBlockedRange(ctx context.Context, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
+	DeleteBlockedRange(ctx context.Context, orgID, id uuid.UUID) error
 	CountBookingOverlaps(ctx context.Context, orgID, resourceID uuid.UUID, occupiesFrom, occupiesUntil time.Time, excludeBookingID *uuid.UUID) (int64, error)
 	CreateBookings(ctx context.Context, in []schedulingdomain.Booking) ([]schedulingdomain.Booking, error)
 	CreateBooking(ctx context.Context, in schedulingdomain.Booking) (schedulingdomain.Booking, error)
@@ -277,18 +279,9 @@ func (u *Usecases) ListBlockedRanges(ctx context.Context, orgID uuid.UUID, branc
 }
 
 func (u *Usecases) CreateBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error) {
-	if in.BranchID == uuid.Nil {
-		return schedulingdomain.BlockedRange{}, domainerr.Validation("branch_id is required")
-	}
-	kind := normalizeBlockedRangeKind(in.Kind)
-	if kind == "" {
-		return schedulingdomain.BlockedRange{}, domainerr.Validation("invalid kind")
-	}
-	if in.StartAt.IsZero() || in.EndAt.IsZero() {
-		return schedulingdomain.BlockedRange{}, domainerr.Validation("start_at and end_at are required")
-	}
-	if !in.EndAt.After(in.StartAt) {
-		return schedulingdomain.BlockedRange{}, domainerr.Validation("end_at must be after start_at")
+	kind, err := validateBlockedRangeFields(in)
+	if err != nil {
+		return schedulingdomain.BlockedRange{}, err
 	}
 	in.ID = ensureUUID(in.ID)
 	in.OrgID = orgID
@@ -300,6 +293,53 @@ func (u *Usecases) CreateBlockedRange(ctx context.Context, orgID uuid.UUID, acto
 	}
 	u.logAudit(ctx, orgID, actor, "scheduling.blocked_range.created", "scheduling_blocked_range", out.ID.String(), map[string]any{"branch_id": out.BranchID.String(), "kind": out.Kind})
 	return out, nil
+}
+
+func (u *Usecases) UpdateBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error) {
+	if id == uuid.Nil {
+		return schedulingdomain.BlockedRange{}, domainerr.Validation("id is required")
+	}
+	kind, err := validateBlockedRangeFields(in)
+	if err != nil {
+		return schedulingdomain.BlockedRange{}, err
+	}
+	in.ID = id
+	in.OrgID = orgID
+	in.Kind = kind
+	out, err := u.repo.UpdateBlockedRange(ctx, in)
+	if err != nil {
+		return schedulingdomain.BlockedRange{}, mapRepoError(err, "blocked_range", id)
+	}
+	u.logAudit(ctx, orgID, actor, "scheduling.blocked_range.updated", "scheduling_blocked_range", out.ID.String(), map[string]any{"branch_id": out.BranchID.String(), "kind": out.Kind})
+	return out, nil
+}
+
+func (u *Usecases) DeleteBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID) error {
+	if id == uuid.Nil {
+		return domainerr.Validation("id is required")
+	}
+	if err := u.repo.DeleteBlockedRange(ctx, orgID, id); err != nil {
+		return mapRepoError(err, "blocked_range", id)
+	}
+	u.logAudit(ctx, orgID, actor, "scheduling.blocked_range.deleted", "scheduling_blocked_range", id.String(), nil)
+	return nil
+}
+
+func validateBlockedRangeFields(in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRangeKind, error) {
+	if in.BranchID == uuid.Nil {
+		return "", domainerr.Validation("branch_id is required")
+	}
+	kind := normalizeBlockedRangeKind(in.Kind)
+	if kind == "" {
+		return "", domainerr.Validation("invalid kind")
+	}
+	if in.StartAt.IsZero() || in.EndAt.IsZero() {
+		return "", domainerr.Validation("start_at and end_at are required")
+	}
+	if !in.EndAt.After(in.StartAt) {
+		return "", domainerr.Validation("end_at must be after start_at")
+	}
+	return kind, nil
 }
 
 func (u *Usecases) ListAvailableSlots(ctx context.Context, orgID uuid.UUID, query schedulingdomain.SlotQuery) ([]schedulingdomain.TimeSlot, error) {
@@ -358,6 +398,16 @@ func (u *Usecases) CreateBooking(ctx context.Context, orgID uuid.UUID, actor str
 		return schedulingdomain.Booking{}, domainerr.Validation("invalid booking status")
 	}
 
+	if in.EndAt != nil && !in.EndAt.IsZero() {
+		if in.Recurrence != nil {
+			return schedulingdomain.Booking{}, domainerr.Validation("end_at cannot be combined with recurrence")
+		}
+		if !in.EndAt.After(in.StartAt) {
+			return schedulingdomain.Booking{}, domainerr.Validation("end_at must be after start_at")
+		}
+		return u.createSingleBookingFromExplicitRange(ctx, orgID, actor, branch, service, in, status, in.StartAt.UTC(), in.EndAt.UTC(), nil)
+	}
+
 	recurrence, err := normalizeBookingRecurrence(in.Recurrence, in.StartAt, branch.Timezone)
 	if err != nil {
 		return schedulingdomain.Booking{}, err
@@ -368,6 +418,14 @@ func (u *Usecases) CreateBooking(ctx context.Context, orgID uuid.UUID, actor str
 	}
 	bookingsToCreate, err := u.prepareBookingsForStarts(ctx, orgID, actor, branch, service, in, status, starts, recurrence)
 	if err != nil {
+		if errors.Is(err, errNoDiscreteSchedulingSlot) && recurrence == nil &&
+			in.ResourceID != nil && *in.ResourceID != uuid.Nil {
+			endUTC := inferBookingEndFromServiceDefaults(service, in.StartAt.UTC())
+			if !endUTC.After(in.StartAt.UTC()) {
+				return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
+			}
+			return u.createSingleBookingFromExplicitRange(ctx, orgID, actor, branch, service, in, status, in.StartAt.UTC(), endUTC, nil)
+		}
 		return schedulingdomain.Booking{}, err
 	}
 	if len(bookingsToCreate) == 0 {
@@ -385,6 +443,92 @@ func (u *Usecases) CreateBooking(ctx context.Context, orgID uuid.UUID, actor str
 		u.emitEvent(ctx, orgID, "scheduling.booking.created", map[string]any{"booking_id": item.ID.String(), "branch_id": item.BranchID.String(), "service_id": item.ServiceID.String()})
 	}
 	return created[0], nil
+}
+
+// createSingleBookingFromExplicitRange persiste un turno con [startUTC, endUTC] ya resueltos (calendario interno,
+// cliente que envía end_at, o fallback por duración por defecto del servicio).
+func (u *Usecases) createSingleBookingFromExplicitRange(
+	ctx context.Context,
+	orgID uuid.UUID,
+	actor string,
+	branch schedulingdomain.Branch,
+	service schedulingdomain.Service,
+	in schedulingdomain.CreateBookingInput,
+	status schedulingdomain.BookingStatus,
+	startUTC, endUTC time.Time,
+	excludeBookingID *uuid.UUID,
+) (schedulingdomain.Booking, error) {
+	if in.ResourceID == nil || *in.ResourceID == uuid.Nil {
+		return schedulingdomain.Booking{}, domainerr.Validation("resource_id is required")
+	}
+	if !endUTC.After(startUTC) {
+		return schedulingdomain.Booking{}, domainerr.Validation("end_at must be after start_at")
+	}
+	resource, err := u.repo.GetResource(ctx, orgID, *in.ResourceID)
+	if err != nil {
+		return schedulingdomain.Booking{}, mapRepoError(err, "resource", *in.ResourceID)
+	}
+	if resource.BranchID != in.BranchID {
+		return schedulingdomain.Booking{}, domainerr.Validation("resource does not belong to branch")
+	}
+	occFrom := startUTC.Add(-time.Duration(service.BufferBeforeMinutes) * time.Minute)
+	occUntil := endUTC.Add(time.Duration(service.BufferAfterMinutes) * time.Minute)
+	if err := u.validateBookingRangeFits(ctx, orgID, branch, resource, startUTC, endUTC, occFrom, occUntil, excludeBookingID); err != nil {
+		return schedulingdomain.Booking{}, err
+	}
+	metadata := cloneMetadata(in.Metadata)
+	booking := schedulingdomain.Booking{
+		ID:             uuid.New(),
+		OrgID:          orgID,
+		BranchID:       branch.ID,
+		ServiceID:      service.ID,
+		ResourceID:     resource.ID,
+		PartyID:        in.PartyID,
+		Reference:      buildBookingReference(startUTC, service.Code),
+		CustomerName:   strings.TrimSpace(in.CustomerName),
+		CustomerPhone:  strings.TrimSpace(in.CustomerPhone),
+		CustomerEmail:  strings.TrimSpace(in.CustomerEmail),
+		Status:         status,
+		Source:         normalizeBookingSource(in.Source),
+		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+		StartAt:        startUTC,
+		EndAt:          endUTC,
+		OccupiesFrom:   occFrom,
+		OccupiesUntil:  occUntil,
+		HoldExpiresAt:  in.HoldUntil,
+		Notes:          strings.TrimSpace(in.Notes),
+		Metadata:       metadata,
+		CreatedBy:      actor,
+	}
+	if booking.Source == "" {
+		booking.Source = schedulingdomain.BookingSourceAdmin
+	}
+	if booking.Status == schedulingdomain.BookingStatusConfirmed {
+		now := time.Now().UTC()
+		booking.ConfirmedAt = &now
+	}
+	created, err := u.repo.CreateBookings(ctx, []schedulingdomain.Booking{booking})
+	if err != nil {
+		if isBookingOverlapErr(err) {
+			return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
+		}
+		return schedulingdomain.Booking{}, mapRepoError(err, "booking", booking.ID)
+	}
+	item := created[0]
+	u.logAudit(ctx, orgID, actor, "scheduling.booking.created", "scheduling_booking", item.ID.String(), map[string]any{"service_id": item.ServiceID.String(), "resource_id": item.ResourceID.String(), "status": item.Status})
+	u.emitEvent(ctx, orgID, "scheduling.booking.created", map[string]any{"booking_id": item.ID.String(), "branch_id": item.BranchID.String(), "service_id": item.ServiceID.String()})
+	return item, nil
+}
+
+func inferBookingEndFromServiceDefaults(service schedulingdomain.Service, startUTC time.Time) time.Time {
+	minutes := service.DefaultDurationMinutes
+	if minutes <= 0 {
+		minutes = service.SlotGranularityMinutes
+	}
+	if minutes <= 0 {
+		minutes = 30
+	}
+	return startUTC.Add(time.Duration(minutes) * time.Minute)
 }
 
 const maxRecurringBookingOccurrences = 60
@@ -414,6 +558,9 @@ func (u *Usecases) prepareBookingsForStarts(
 		}
 		matchingSlots := filterSlotsByStart(candidateSlots, startAt.UTC(), in.ResourceID)
 		if len(matchingSlots) == 0 {
+			if recurrence == nil {
+				return nil, errNoDiscreteSchedulingSlot
+			}
 			return nil, domainerr.Conflict("slot not available")
 		}
 		metadata := cloneMetadata(in.Metadata)
@@ -807,26 +954,64 @@ func (u *Usecases) RescheduleBooking(ctx context.Context, orgID uuid.UUID, actor
 	if resourceID == nil {
 		resourceID = &current.ResourceID
 	}
-	slots, err := u.listAvailableSlots(ctx, orgID, schedulingdomain.SlotQuery{
-		BranchID:   branchID,
-		ServiceID:  current.ServiceID,
-		Date:       in.StartAt,
-		ResourceID: resourceID,
-	})
-	if err != nil {
-		return schedulingdomain.Booking{}, err
+
+	if in.EndAt != nil && !in.EndAt.IsZero() {
+		// Custom-duration mode: the caller is moving and/or resizing the booking outside
+		// of the canonical service slots (used by the owner's internal calendar). We still
+		// validate against availability rules, blocked ranges and existing bookings so the
+		// rescheduled booking remains coherent with what public clients see.
+		if !in.EndAt.After(in.StartAt) {
+			return schedulingdomain.Booking{}, domainerr.Validation("end_at must be after start_at")
+		}
+		branch, err := u.repo.GetBranch(ctx, orgID, branchID)
+		if err != nil {
+			return schedulingdomain.Booking{}, mapRepoError(err, "branch", branchID)
+		}
+		resource, err := u.repo.GetResource(ctx, orgID, *resourceID)
+		if err != nil {
+			return schedulingdomain.Booking{}, mapRepoError(err, "resource", *resourceID)
+		}
+		service, err := u.repo.GetService(ctx, orgID, current.ServiceID)
+		if err != nil {
+			return schedulingdomain.Booking{}, mapRepoError(err, "service", current.ServiceID)
+		}
+		startUTC := in.StartAt.UTC()
+		endUTC := in.EndAt.UTC()
+		occFrom := startUTC.Add(-time.Duration(service.BufferBeforeMinutes) * time.Minute)
+		occUntil := endUTC.Add(time.Duration(service.BufferAfterMinutes) * time.Minute)
+		excludeID := current.ID
+		if err := u.validateBookingRangeFits(ctx, orgID, branch, resource, startUTC, endUTC, occFrom, occUntil, &excludeID); err != nil {
+			return schedulingdomain.Booking{}, err
+		}
+		current.BranchID = branchID
+		current.ResourceID = *resourceID
+		current.StartAt = startUTC
+		current.EndAt = endUTC
+		current.OccupiesFrom = occFrom
+		current.OccupiesUntil = occUntil
+	} else {
+		slots, err := u.listAvailableSlots(ctx, orgID, schedulingdomain.SlotQuery{
+			BranchID:   branchID,
+			ServiceID:  current.ServiceID,
+			Date:       in.StartAt,
+			ResourceID: resourceID,
+		})
+		if err != nil {
+			return schedulingdomain.Booking{}, err
+		}
+		matching := filterSlotsByStart(slots, in.StartAt.UTC(), resourceID)
+		if len(matching) == 0 {
+			return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
+		}
+		slot := matching[0]
+		current.BranchID = branchID
+		current.ResourceID = slot.ResourceID
+		current.StartAt = slot.StartAt
+		current.EndAt = slot.EndAt
+		current.OccupiesFrom = slot.OccupiesFrom
+		current.OccupiesUntil = slot.OccupiesUntil
 	}
-	matching := filterSlotsByStart(slots, in.StartAt.UTC(), resourceID)
-	if len(matching) == 0 {
-		return schedulingdomain.Booking{}, domainerr.Conflict("slot not available")
-	}
-	slot := matching[0]
-	current.BranchID = branchID
-	current.ResourceID = slot.ResourceID
-	current.StartAt = slot.StartAt
-	current.EndAt = slot.EndAt
-	current.OccupiesFrom = slot.OccupiesFrom
-	current.OccupiesUntil = slot.OccupiesUntil
+
 	out, err := u.repo.RescheduleBooking(ctx, current)
 	if err != nil {
 		if isBookingOverlapErr(err) {
@@ -834,9 +1019,95 @@ func (u *Usecases) RescheduleBooking(ctx context.Context, orgID uuid.UUID, actor
 		}
 		return schedulingdomain.Booking{}, mapRepoError(err, "booking", current.ID)
 	}
-	u.logAudit(ctx, orgID, actor, "scheduling.booking.rescheduled", "scheduling_booking", out.ID.String(), map[string]any{"start_at": out.StartAt})
-	u.emitEvent(ctx, orgID, "scheduling.booking.rescheduled", map[string]any{"booking_id": out.ID.String(), "start_at": out.StartAt})
+	u.logAudit(ctx, orgID, actor, "scheduling.booking.rescheduled", "scheduling_booking", out.ID.String(), map[string]any{"start_at": out.StartAt, "end_at": out.EndAt})
+	u.emitEvent(ctx, orgID, "scheduling.booking.rescheduled", map[string]any{"booking_id": out.ID.String(), "start_at": out.StartAt, "end_at": out.EndAt})
 	return out, nil
+}
+
+// validateBookingRangeFits checks that an arbitrary [startAt, endAt] booking range
+// (with the corresponding occupation window built from service buffers) is acceptable
+// for the given resource: inside availability rules, not overlapping any blocked range,
+// and not overlapping any existing booking. Used by reschedule's custom-duration path.
+func (u *Usecases) validateBookingRangeFits(
+	ctx context.Context,
+	orgID uuid.UUID,
+	branch schedulingdomain.Branch,
+	resource schedulingdomain.Resource,
+	startAt, endAt, occFrom, occUntil time.Time,
+	excludeBookingID *uuid.UUID,
+) error {
+	loc := time.UTC
+	if strings.TrimSpace(branch.Timezone) != "" {
+		if l, err := time.LoadLocation(branch.Timezone); err == nil {
+			loc = l
+		}
+	}
+	if strings.TrimSpace(resource.Timezone) != "" {
+		if l, err := time.LoadLocation(resource.Timezone); err == nil {
+			loc = l
+		}
+	}
+	dayLocal := startAt.In(loc)
+	rules, err := u.repo.ListApplicableAvailabilityRules(ctx, orgID, branch.ID, &resource.ID, dayLocal)
+	if err != nil {
+		return err
+	}
+	if len(rules) == 0 {
+		return domainerr.Conflict("outside business hours")
+	}
+	branchWindows := make([]corescheduling.Window, 0)
+	resourceWindows := make([]corescheduling.Window, 0)
+	for _, rule := range rules {
+		startClock, err := corescheduling.ParseClock(rule.StartTime)
+		if err != nil {
+			continue
+		}
+		endClock, err := corescheduling.ParseClock(rule.EndTime)
+		if err != nil {
+			continue
+		}
+		s := time.Date(dayLocal.Year(), dayLocal.Month(), dayLocal.Day(), startClock.Hour(), startClock.Minute(), 0, 0, loc)
+		e := time.Date(dayLocal.Year(), dayLocal.Month(), dayLocal.Day(), endClock.Hour(), endClock.Minute(), 0, 0, loc)
+		if !e.After(s) {
+			continue
+		}
+		w := corescheduling.Window{Start: s, End: e}
+		if rule.Kind == schedulingdomain.AvailabilityRuleKindBranch {
+			branchWindows = append(branchWindows, w)
+		} else {
+			resourceWindows = append(resourceWindows, w)
+		}
+	}
+	activeWindows := corescheduling.IntersectWindows(branchWindows, resourceWindows)
+	if !rangeFitsAnyWindow(startAt, endAt, activeWindows) {
+		return domainerr.Conflict("outside business hours")
+	}
+	blocked, err := u.repo.ListBlockedRangesBetween(ctx, orgID, branch.ID, &resource.ID, occFrom, occUntil)
+	if err != nil {
+		return err
+	}
+	if len(blocked) > 0 {
+		return domainerr.Conflict("overlaps with a blocked range")
+	}
+	count, err := u.repo.CountBookingOverlaps(ctx, orgID, resource.ID, occFrom, occUntil, excludeBookingID)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return domainerr.Conflict("slot not available")
+	}
+	return nil
+}
+
+func rangeFitsAnyWindow(start, end time.Time, windows []corescheduling.Window) bool {
+	startUTC := start.UTC()
+	endUTC := end.UTC()
+	for _, w := range windows {
+		if !startUTC.Before(w.Start.UTC()) && !endUTC.After(w.End.UTC()) {
+			return true
+		}
+	}
+	return false
 }
 
 func (u *Usecases) ListQueues(ctx context.Context, orgID uuid.UUID, branchID *uuid.UUID) ([]schedulingdomain.Queue, error) {
@@ -1323,10 +1594,20 @@ func generateSlotsForResource(loc *time.Location, branch schedulingdomain.Branch
 	return slots
 }
 
+// slotStartMatchesRequested tolera deriva sub-segundo y desalineación de milisegundos entre el cliente y los slots generados en el servidor.
+func slotStartMatchesRequested(slotStart, requested time.Time) bool {
+	a := slotStart.UTC()
+	b := requested.UTC()
+	if a.Equal(b) {
+		return true
+	}
+	return a.Truncate(time.Minute).Equal(b.Truncate(time.Minute))
+}
+
 func filterSlotsByStart(slots []schedulingdomain.TimeSlot, startAt time.Time, resourceID *uuid.UUID) []schedulingdomain.TimeSlot {
 	out := make([]schedulingdomain.TimeSlot, 0)
 	for _, slot := range slots {
-		if !slot.StartAt.UTC().Equal(startAt.UTC()) {
+		if !slotStartMatchesRequested(slot.StartAt, startAt) {
 			continue
 		}
 		if resourceID != nil && *resourceID != uuid.Nil && slot.ResourceID != *resourceID {

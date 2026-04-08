@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PublicSchedulingClient } from './client';
@@ -77,6 +77,7 @@ function createClient(overrides?: Partial<Record<keyof PublicSchedulingClient, u
 }
 
 function renderFlow(client: PublicSchedulingClient, props?: Partial<ComponentProps<typeof PublicSchedulingFlow>>) {
+  cleanup();
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -152,7 +153,7 @@ describe('PublicSchedulingFlow', () => {
     renderFlow(client, { locale: 'es-AR' });
 
     expect(await screen.findByRole('button', { name: /Elegir slot/i })).toBeTruthy();
-    expect(screen.getByText(/abr/i)).toBeTruthy();
+    expect(screen.getByText(/\d{1,2}\/\d{1,2}\/\d{4}/)).toBeTruthy();
   });
 
   it('localizes booking action buttons when using english regional locales', async () => {

@@ -1,10 +1,13 @@
 import type {
   AvailabilityRule,
+  BlockedRange,
+  BlockedRangePayload,
   Booking,
   Branch,
   CreateBookingPayload,
   DashboardStats,
   DayAgendaItem,
+  ListBlockedRangesQuery,
   ListBookingsFilter,
   PublicAvailabilityQuery,
   PublicAvailabilitySlot,
@@ -67,6 +70,24 @@ export function createSchedulingClient(request: SchedulingTransport) {
       return request<{ items: AvailabilityRule[] }>(
         `/v1/scheduling/availability-rules${queryString({ branch_id: branchId, resource_id: resourceId })}`,
       ).then((response) => response.items ?? []);
+    },
+    listBlockedRanges(query: ListBlockedRangesQuery = {}) {
+      return request<{ items: BlockedRange[] }>(
+        `/v1/scheduling/blocked-ranges${queryString({
+          branch_id: query.branchId,
+          resource_id: query.resourceId,
+          date: query.date,
+        })}`,
+      ).then((response) => response.items ?? []);
+    },
+    createBlockedRange(payload: BlockedRangePayload) {
+      return request<BlockedRange>('/v1/scheduling/blocked-ranges', { method: 'POST', body: payload });
+    },
+    updateBlockedRange(id: string, payload: BlockedRangePayload) {
+      return request<BlockedRange>(`/v1/scheduling/blocked-ranges/${id}`, { method: 'PATCH', body: payload });
+    },
+    deleteBlockedRange(id: string) {
+      return request<void>(`/v1/scheduling/blocked-ranges/${id}`, { method: 'DELETE' });
     },
     listSlots(query: SlotQuery) {
       return request<{ items: TimeSlot[] }>(
