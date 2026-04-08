@@ -199,7 +199,7 @@ describe('CalendarSurface', () => {
     expect(fullCalendarProps.last?.selectMirror).toBe(true);
     expect(fullCalendarProps.last?.dragScroll).toBe(true);
     expect(fullCalendarProps.last?.stickyHeaderDates).toBe(true);
-    expect(fullCalendarProps.last?.navLinks).toBe(true);
+    expect(fullCalendarProps.last?.navLinks).toBe(false);
     expect(fullCalendarProps.last?.eventResizableFromStart).toBe(true);
     expect(fullCalendarProps.last?.snapDuration).toBe('00:30:00');
     expect(fullCalendarProps.last?.moreLinkClick).toBe('popover');

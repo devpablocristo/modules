@@ -1,3 +1,19 @@
+/*
+  Grupos (para bisectar problemas visuales: comentar un bloque `GROUP n` a la vez):
+  GROUP 0 — layout shell (.modules-calendar, toolbar, body)
+  GROUP 1 — variables FullCalendar + sticky + popover
+  GROUP 2 — fondos transparentes scrollgrid / vista
+  GROUP 3 — celdas, ejes, slots, headers de columna
+  GROUP 4 — fills FC (col-bg, non-business, …)
+  GROUP 5 — día actual (timegrid + mes)
+  GROUP 6 — eventos
+  GROUP 7 — highlight selección FC
+  GROUP 8 — crosshair (día × hora)
+  GROUP 9 — anulación hover global del shell sobre tablas FC (ver nota GROUP 9)
+  GROUP 10 — botones FC
+*/
+
+/* ========== GROUP 0: layout shell ========== */
 .modules-calendar {
   display: flex;
   flex-direction: column;
@@ -32,6 +48,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.modules-calendar__toolbar-trailing {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .modules-calendar__title {
@@ -131,17 +153,34 @@
   display: none !important;
 }
 
+/* ========== GROUP 1: variables FC + sticky + popover ========== */
+/* FullCalendar inyecta :root con --fc-page-bg-color:#fff; sticky y resizers usan esa var. */
 .modules-calendar .fc {
   font-family: var(--font-body);
   height: 100%;
-  --fc-page-bg-color: transparent;
-  --fc-neutral-bg-color: transparent;
-  --fc-highlight-color: transparent;
+  --fc-page-bg-color: var(--color-surface);
+  --fc-neutral-bg-color: color-mix(in srgb, var(--color-border) 40%, transparent);
+  --fc-highlight-color: color-mix(in srgb, var(--color-primary) 22%, transparent);
   --fc-bg-event-color: transparent;
   --fc-bg-event-opacity: 0;
   --fc-today-bg-color: transparent;
+  --fc-border-color: var(--color-border-subtle);
 }
 
+.modules-calendar .fc .fc-scrollgrid-section-sticky > * {
+  background: var(--color-surface) !important;
+}
+
+.modules-calendar .fc-theme-standard .fc-popover {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.modules-calendar .fc-theme-standard .fc-popover-header {
+  background: var(--color-surface-hover);
+}
+
+/* ========== GROUP 2: scrollgrid / vista transparentes ========== */
 .modules-calendar .fc-theme-standard,
 .modules-calendar .fc-theme-standard table,
 .modules-calendar .fc .fc-scrollgrid,
@@ -157,6 +196,7 @@
   border: none;
 }
 
+/* ========== GROUP 3: bordes celdas, timegrid, cabeceras ========== */
 .modules-calendar .fc td,
 .modules-calendar .fc th {
   border-color: var(--color-border-subtle);
@@ -209,6 +249,7 @@
   min-height: 28px;
 }
 
+/* ========== GROUP 4: capas FC (business, bg-event, …) ========== */
 .modules-calendar .fc .fc-timegrid-col-bg,
 .modules-calendar .fc .fc-daygrid-day-bg,
 .modules-calendar .fc .fc-cell-shaded,
@@ -250,6 +291,7 @@
   background: transparent !important;
 }
 
+/* ========== GROUP 5: hoy (semana / mes) ========== */
 .modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today .fc-timegrid-col-frame,
 .modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-today .fc-timegrid-slot-lane {
   background: color-mix(in srgb, var(--color-primary) 8%, transparent) !important;
@@ -288,32 +330,6 @@
   background: transparent !important;
 }
 
-.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-col-frame,
-.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-slot-lane,
-.modules-calendar .fc .fc-timeGridWeek-view .fc-timegrid-col.fc-day-hovered .fc-timegrid-col-bg {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent) !important;
-}
-
-.modules-calendar .fc .fc-timeGridWeek-view .fc-col-header-cell.fc-day-hovered .fc-col-header-cell-cushion {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
-  border-radius: 999px;
-  padding: 4px 8px;
-}
-
-.modules-calendar .fc .fc-day-hovered .fc-daygrid-day-number {
-  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface));
-  color: var(--color-primary);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 40%, transparent);
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
 .modules-calendar .fc .fc-day-today .fc-daygrid-day-number {
   background: var(--color-primary);
   color: var(--color-on-primary);
@@ -326,6 +342,7 @@
   padding: 0;
 }
 
+/* ========== GROUP 6: eventos (+ borde FC que usa --fc-page-bg-color en mirror/inset) ========== */
 .modules-calendar .fc .fc-event {
   border: none;
   border-radius: 4px;
@@ -349,6 +366,11 @@
 
 .modules-calendar .fc .fc-timegrid-event .fc-event-main {
   padding: 2px 0;
+}
+
+.modules-calendar .fc .fc-timegrid-event.fc-event-mirror,
+.modules-calendar .fc .fc-timegrid-event-harness-inset .fc-timegrid-event {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border) 80%, var(--color-surface)) !important;
 }
 
 .modules-calendar .fc .fc-timegrid-slot {
@@ -376,14 +398,60 @@
   border-color: var(--color-danger);
 }
 
+/* ========== GROUP 7: highlight selección ========== */
 .modules-calendar .fc .fc-highlight {
+  background: var(--fc-highlight-color) !important;
+}
+
+/* ========== GROUP 8: crosshair (debajo de eventos en z-index) ========== */
+.modules-calendar .fc .fc-timegrid-col-frame {
+  position: relative;
+}
+
+.modules-calendar .fc .fc-timegrid-col.fc-crosshair-col:not(.fc-timegrid-axis) .fc-timegrid-col-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.modules-calendar .fc .fc-timegrid-col.fc-crosshair-col:not(.fc-timegrid-axis) .fc-timegrid-col-frame::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--fc-crosshair-slot-top, 0);
+  height: var(--fc-crosshair-slot-height, 0);
+  min-height: 1px;
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.modules-calendar .fc .fc-col-header-cell.fc-crosshair-col .fc-col-header-cell-cushion {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+.modules-calendar .fc tr.fc-crosshair-row .fc-timegrid-slot-label {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+/*
+  ========== GROUP 9: aislar tablas FC del shell ==========
+  frontend/src/styles/components.css: `tbody tr:hover { background: var(--color-surface-hover); }` sin scope.
+  FullCalendar timegrid usa <tbody><tr> por cada franja horaria → toda la fila se pintaba al hover.
+*/
+.modules-calendar .fc tbody tr:hover {
   background: transparent !important;
 }
 
-[data-theme="dark"] .modules-calendar .fc .fc-highlight {
-  background: transparent !important;
-}
-
+/* ========== GROUP 10: botones FC ========== */
 .modules-calendar .fc .fc-button {
   font-size: var(--text-sm);
   border-radius: var(--radius-sm);

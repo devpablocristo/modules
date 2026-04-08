@@ -4,8 +4,9 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import type { ReactNode, Ref } from "react";
-import { useRef } from "react";
+import type { PointerEvent, ReactNode, Ref } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { clearTimeGridCrosshair, updateTimeGridCrosshair } from "./timeGridCrosshair";
 
 export type CalendarView = "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "listWeek" | "listMonth";
 
@@ -99,66 +100,9 @@ export type CalendarSurfaceProps = {
   eventAllow?: CalendarOptions["eventAllow"];
   eventConstraint?: CalendarOptions["eventConstraint"];
   eventContent?: CalendarOptions["eventContent"];
+  /** Contenido opcional a la derecha del grupo de vistas (p. ej. acciones de agenda). */
+  toolbarTrailing?: ReactNode;
 };
-
-function setHoveredDateClasses(root: HTMLElement | null, date: string | null): void {
-  if (!root) {
-    return;
-  }
-
-  root.querySelectorAll(".fc-day-hovered").forEach((node) => {
-    node.classList.remove("fc-day-hovered");
-  });
-
-  if (!date) {
-    return;
-  }
-
-  const isWeekView = Boolean(root.querySelector(".fc-timeGridWeek-view"));
-  const isMonthView = Boolean(root.querySelector(".fc-dayGridMonth-view"));
-
-  let selector = `[data-date="${date}"]`;
-  if (isWeekView) {
-    selector = [
-      `.fc-timeGridWeek-view .fc-col-header-cell[data-date="${date}"]`,
-      `.fc-timeGridWeek-view .fc-timegrid-col[data-date="${date}"]`,
-    ].join(", ");
-  } else if (isMonthView) {
-    selector = `.fc-dayGridMonth-view .fc-daygrid-day[data-date="${date}"]`;
-  }
-
-  root.querySelectorAll<HTMLElement>(selector).forEach((node) => {
-    node.classList.add("fc-day-hovered");
-  });
-}
-
-function resolveDateFromTarget(target: EventTarget | null): string | null {
-  if (!(target instanceof HTMLElement)) {
-    return null;
-  }
-
-  const datedNode =
-    target.closest<HTMLElement>("[data-date]") ??
-    target.closest<HTMLElement>(".fc-timegrid-col") ??
-    target.closest<HTMLElement>(".fc-daygrid-day") ??
-    target.closest<HTMLElement>(".fc-col-header-cell");
-
-  return datedNode?.dataset.date ?? null;
-}
-
-function resolveHoveredDay(event: { target: EventTarget | null; clientX: number; clientY: number }): string | null {
-  if (typeof document !== "undefined") {
-    const stack = document.elementsFromPoint(event.clientX, event.clientY);
-    for (const node of stack) {
-      const date = resolveDateFromTarget(node);
-      if (date) {
-        return date;
-      }
-    }
-  }
-
-  return resolveDateFromTarget(event.target);
-}
 
 const defaultViewOptions: readonly CalendarViewOption[] = [
   { value: "timeGridDay", label: "Día" },
@@ -202,7 +146,8 @@ export function CalendarSurface({
   selectMirror = true,
   dragScroll = true,
   stickyHeaderDates = true,
-  navLinks = true,
+  /** En false evita previews raros y enlaces en cabeceras; el crosshair lo pintamos nosotros. */
+  navLinks = false,
   eventResizableFromStart = true,
   snapDuration = slotDuration,
   moreLinkClick = "popover",
@@ -211,9 +156,50 @@ export function CalendarSurface({
   eventAllow,
   eventConstraint,
   eventContent,
+  toolbarTrailing,
 }: CalendarSurfaceProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const hoveredDayRef = useRef<string | null>(null);
+  const crosshairRafRef = useRef<number | null>(null);
+  const crosshairPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  const flushTimeGridCrosshair = useCallback(() => {
+    crosshairRafRef.current = null;
+    const p = crosshairPointRef.current;
+    if (!p || !bodyRef.current) {
+      return;
+    }
+    updateTimeGridCrosshair(bodyRef.current, p.x, p.y);
+  }, []);
+
+  const onCalendarBodyPointerMove = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      crosshairPointRef.current = { x: event.clientX, y: event.clientY };
+      if (crosshairRafRef.current != null) {
+        return;
+      }
+      crosshairRafRef.current = window.requestAnimationFrame(flushTimeGridCrosshair);
+    },
+    [flushTimeGridCrosshair],
+  );
+
+  const onCalendarBodyPointerLeave = useCallback(() => {
+    crosshairPointRef.current = null;
+    if (crosshairRafRef.current != null) {
+      window.cancelAnimationFrame(crosshairRafRef.current);
+      crosshairRafRef.current = null;
+    }
+    clearTimeGridCrosshair(bodyRef.current);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (crosshairRafRef.current != null) {
+        window.cancelAnimationFrame(crosshairRafRef.current);
+      }
+      clearTimeGridCrosshair(bodyRef.current);
+    };
+  }, []);
+
   const fullCalendarProps = {
     plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin],
     initialView: view,
@@ -259,16 +245,6 @@ export function CalendarSurface({
     ...calendarOptions,
   } as CalendarOptions;
 
-  const syncHoveredDay = (event: { target: EventTarget | null; clientX: number; clientY: number }) => {
-    const nextHoveredDay = resolveHoveredDay(event);
-    if (!nextHoveredDay || hoveredDayRef.current === nextHoveredDay) {
-      return;
-    }
-
-    hoveredDayRef.current = nextHoveredDay;
-    setHoveredDateClasses(bodyRef.current, nextHoveredDay);
-  };
-
   return (
     <div className={`modules-calendar ${className}`.trim()}>
       <div className="modules-calendar__toolbar">
@@ -301,18 +277,16 @@ export function CalendarSurface({
               </button>
             ))}
           </div>
+          {toolbarTrailing ? <div className="modules-calendar__toolbar-trailing">{toolbarTrailing}</div> : null}
         </div>
       </div>
 
       <div
         ref={bodyRef}
         className="modules-calendar__body"
-        onMouseMove={syncHoveredDay}
-        onMouseOverCapture={syncHoveredDay}
-        onMouseLeave={() => {
-          hoveredDayRef.current = null;
-          setHoveredDateClasses(bodyRef.current, null);
-        }}
+        onPointerMove={onCalendarBodyPointerMove}
+        onPointerLeave={onCalendarBodyPointerLeave}
+        onPointerCancel={onCalendarBodyPointerLeave}
       >
         {!loaded ? (
           loadingFallback ?? (
