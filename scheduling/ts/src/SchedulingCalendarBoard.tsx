@@ -23,6 +23,7 @@ import {
   type SchedulingBookingDraft,
   type SchedulingBookingModalState,
 } from './SchedulingBookingModal';
+import { SchedulingDateInput } from './SchedulingDateInput';
 import {
   BlockedRangeModal,
   blockedRangeDraftFromRange,
@@ -1556,12 +1557,11 @@ export function SchedulingCalendar({
           </div>
           <div className="form-group">
             <label htmlFor="scheduling-date">{copy.focusDateLabel}</label>
-            <input
+            <SchedulingDateInput
               id="scheduling-date"
-              type="date"
+              locale={locale}
               value={focusedDate}
-              onChange={(event) => {
-                const nextDate = event.target.value;
+              onValueChange={(nextDate) => {
                 setFocusedDate(nextDate);
                 calendarRef.current?.getApi().gotoDate(nextDate);
               }}
@@ -1608,6 +1608,7 @@ export function SchedulingCalendar({
       <BlockedRangeModal
         state={blockedModalState}
         copy={copy}
+        locale={locale}
         saving={
           createBlockedRangeMutation.isPending ||
           updateBlockedRangeMutation.isPending ||

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { confirmAction } from '@devpablocristo/core-browser';
 import { formatSchedulingDateTime, formatSchedulingWeekdayNarrow } from './locale';
+import { SchedulingDateInput } from './SchedulingDateInput';
 import type { Booking, SchedulingCalendarCopy, Service, TimeSlot } from './types';
 
 export type SchedulingBookingRecurrenceDraft = {
@@ -227,11 +228,11 @@ export function SchedulingBookingModal({
           <div className="modules-scheduling__form-row">
             <div className="form-group grow">
               <label htmlFor="scheduling-slot-date">{copy.focusDateLabel}</label>
-              <input
+              <SchedulingDateInput
                 id="scheduling-slot-date"
-                type="date"
+                locale={locale}
                 value={state.editor.date}
-                onChange={(event) => onEditorChange?.({ date: event.target.value })}
+                onValueChange={(iso) => onEditorChange?.({ date: iso })}
               />
             </div>
             <div className="form-group grow">

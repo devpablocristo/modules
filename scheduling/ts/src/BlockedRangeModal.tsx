@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { confirmAction } from '@devpablocristo/core-browser';
+import { SchedulingDateInput } from './SchedulingDateInput';
 import type { BlockedRange, BlockedRangeKind, SchedulingCalendarCopy } from './types';
 
 export type BlockedRangeModalState =
@@ -33,6 +34,7 @@ export type BlockedRangeDraft = {
 type Props = {
   state: BlockedRangeModalState;
   copy: SchedulingCalendarCopy;
+  locale?: string;
   saving?: boolean;
   onClose: () => void;
   onSave: (draft: BlockedRangeDraft) => Promise<void> | void;
@@ -78,7 +80,7 @@ function toTimeInputValue(value: Date): string {
   return `${hours}:${minutes}`;
 }
 
-export function BlockedRangeModal({ state, copy, saving = false, onClose, onSave, onDelete }: Props) {
+export function BlockedRangeModal({ state, copy, locale, saving = false, onClose, onSave, onDelete }: Props) {
   const [draft, setDraft] = useState<BlockedRangeDraft>(() =>
     state.open ? state.initial : emptyBlockedRangeDraft(toDateInputValue(new Date())),
   );
@@ -173,11 +175,11 @@ export function BlockedRangeModal({ state, copy, saving = false, onClose, onSave
           <div className="modules-scheduling__form-row">
             <div className="form-group grow">
               <label htmlFor="blocked-range-date">{copy.focusDateLabel}</label>
-              <input
+              <SchedulingDateInput
                 id="blocked-range-date"
-                type="date"
+                locale={locale}
                 value={draft.date}
-                onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))}
+                onValueChange={(iso) => setDraft((current) => ({ ...current, date: iso }))}
                 required
               />
             </div>

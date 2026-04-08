@@ -5,6 +5,7 @@ import {
   formatSchedulingDateOnly,
   formatSchedulingDateTime,
   formatSchedulingWeekdayNarrow,
+  parseSchedulingDateOnlyLatinInput,
   resolveSchedulingCopyLocale,
 } from './locale';
 
@@ -27,6 +28,15 @@ describe('scheduling locale helpers', () => {
     expect(formatSchedulingDateOnly('2099-04-08', 'es-AR')).toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/);
     expect(formatSchedulingDateOnly('2099-04-08', 'es-AR')).not.toContain('2099-04');
     expect(formatSchedulingDateOnly('not-a-date', 'es-AR')).toBe('not-a-date');
+  });
+
+  it('parses Latin day-first and ISO paste to YYYY-MM-DD', () => {
+    expect(parseSchedulingDateOnlyLatinInput('04/09/2026')).toBe('2026-09-04');
+    expect(parseSchedulingDateOnlyLatinInput('4.9.2026')).toBe('2026-09-04');
+    expect(parseSchedulingDateOnlyLatinInput('2026-09-04')).toBe('2026-09-04');
+    expect(parseSchedulingDateOnlyLatinInput('32/01/2026')).toBeNull();
+    expect(parseSchedulingDateOnlyLatinInput('04/13/2026')).toBeNull();
+    expect(parseSchedulingDateOnlyLatinInput('')).toBeNull();
   });
 
   it('formats weekday picks with the provided locale', () => {

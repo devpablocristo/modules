@@ -63,6 +63,47 @@ export function formatSchedulingDateOnly(ymd: string, locale: string | undefined
   }).format(parsed);
 }
 
+/**
+ * Parsea entrada de fecha para UI en español (LATAM): día/mes/año primero.
+ * Acepta `YYYY-MM-DD` (pegar desde API) o `DD/MM/YYYY` con separadores / . -
+ */
+export function parseSchedulingDateOnlyLatinInput(text: string): string | null {
+  const trimmed = text.trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (!isValidDate(d)) {
+      return null;
+    }
+    if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+      return null;
+    }
+    return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  }
+
+  const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(trimmed);
+  if (!m) {
+    return null;
+  }
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (!isValidDate(d)) {
+    return null;
+  }
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) {
+    return null;
+  }
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 export function formatSchedulingClock(value: string, locale: string | undefined): string {
   const parsed = new Date(value);
   if (!isValidDate(parsed)) {

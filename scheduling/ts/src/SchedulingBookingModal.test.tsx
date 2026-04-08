@@ -238,4 +238,24 @@ describe('SchedulingBookingModal', () => {
       expect(screen.getByDisplayValue('Ada Lovelace')).toBeTruthy();
     });
   });
+
+  it('con locale es muestra Fecha foco como texto día/mes/año', () => {
+    render(
+      <SchedulingBookingModal
+        state={createState}
+        copy={copy}
+        locale="es-AR"
+        onClose={vi.fn()}
+        onEditorChange={vi.fn()}
+        onCreate={vi.fn()}
+        onAction={vi.fn()}
+      />,
+    );
+
+    const dateInput = screen.getByLabelText('Fecha foco') as HTMLInputElement;
+    expect(dateInput.type).toBe('text');
+    expect(dateInput.placeholder).toBe('DD/MM/AAAA');
+    expect(dateInput.value).toMatch(/\d{1,2}\/\d{1,2}\/2099/);
+    expect(dateInput.value).not.toMatch(/2099-04-05/);
+  });
 });

@@ -30,6 +30,7 @@ export {
   formatSchedulingDateOnly,
   formatSchedulingDateTime,
   formatSchedulingWeekdayNarrow,
+  parseSchedulingDateOnlyLatinInput,
   resolveSchedulingCopyLocale,
 } from './locale';
 export type { SchedulingCopyLocale } from './locale';
