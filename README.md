@@ -6,6 +6,8 @@ Paquetes listos para integrar **encima de [`core`](../core)**, sin lógica de ne
 
 ```
 modules/
+  admin/
+    insights/ts     → npm @devpablocristo/modules-admin-insights
   ai/
     console/ts      → npm @devpablocristo/modules-ai-console
   calendar/
@@ -30,6 +32,7 @@ modules/
 ## Responsabilidades
 
 - `ai`: UI reusable para consolas con copilot e insights.
+- `admin`: superficies reutilizables de administración y observabilidad para consolas.
 - `calendar`: calendario reusable basado en FullCalendar.
 - `crud`: shell CRUD y segmentos HTTP compartidos.
 - `kanban`: tablero por estados y drag and drop.
@@ -56,6 +59,7 @@ modules/
 La unidad de versionado es cada implementación concreta:
 
 - `ai/console/ts`
+- `admin/insights/ts`
 - `calendar/board/ts`
 - `crud/ui/ts`
 - `crud/paths/go`

@@ -32,6 +32,14 @@ import {
   type BlockedRangeModalState,
 } from './BlockedRangeModal';
 import {
+  emptyInternalEventDraft,
+  internalEventDraftFromEntity,
+  SchedulingInternalEventModal,
+  type InternalEventDraft,
+  type InternalEventModalState,
+} from './SchedulingInternalEventModal';
+import type { SchedulingEntryContext, SchedulingEntryType } from './types';
+import {
   buildFullCalendarEventInputs,
   buildSchedulingCreateModalStateFromSlot,
   buildSchedulingCreateModalStateFromStart,
@@ -41,6 +49,7 @@ import {
   buildSlotIdentity,
   buildSyntheticTimeSlotFromEditor,
   calendarSelectionAllowedWithBuffers,
+  effectiveSchedulingTimeZone,
   resolveBookingDisplayTitle,
   toDateInputValue as toDateInputValueFromIso,
   toTimeInputValue,
@@ -53,7 +62,8 @@ import type {
   BookingStatus,
   Branch,
   CalendarEvent,
-  DashboardStats,
+  CreateInternalEventPayload,
+  InternalEvent,
   Resource,
   SchedulingCalendarCopy,
   Service,
@@ -75,6 +85,8 @@ const schedulingKeys = {
     ['scheduling', 'bookings-range', branchId ?? 'none', start, end] as const,
   blockedRangesRange: (branchId: string | null, start: string, end: string) =>
     ['scheduling', 'blocked-ranges-range', branchId ?? 'none', start, end] as const,
+  internalEventsRange: (branchId: string | null, start: string, end: string) =>
+    ['scheduling', 'internal-events-range', branchId ?? 'none', start, end] as const,
 };
 
 /** Referencia estable cuando aún no hay datos de slots (evita loop en efecto de sync del modal). */
@@ -108,6 +120,10 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     loading: 'Loading schedule…',
     unavailableTitle: 'Schedule is not configured yet',
     unavailableDescription: 'Create at least one active branch and one schedule-enabled service to use this calendar.',
+    loadErrorTitle: 'Could not load the schedule',
+    loadErrorDescription:
+      'The request for branches or services failed. Check your connection, sign in again, or confirm you have scheduling permissions (scheduling:read).',
+    retryLoad: 'Retry',
     filtersTitle: 'Filters',
     filtersDescription: 'Branch and service are mandatory. Resource is optional.',
     timelineTitle: '',
@@ -203,6 +219,28 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     blockedRangeDeleteTitle: 'Delete this block?',
     blockedRangeDeleteDescription: 'The blocked time will be removed and the slot becomes available again.',
     blockedRangeFallbackTitle: 'Blocked',
+    internalEventFallbackTitle: 'Internal event',
+    internalEventCreateAction: 'New event',
+    internalEventModalCreateTitle: 'New internal event',
+    internalEventModalEditTitle: 'Edit internal event',
+    internalEventTitleLabel: 'Title',
+    internalEventTitlePlaceholder: 'Team meeting, training, lunch…',
+    internalEventDescriptionLabel: 'Notes',
+    internalEventResourceLabel: 'Resource (optional)',
+    internalEventResourceUnassigned: 'Personal time (no resource)',
+    internalEventStartLabel: 'Start',
+    internalEventEndLabel: 'End',
+    internalEventStatusLabel: 'Status',
+    internalEventStatusOptions: { scheduled: 'Scheduled', done: 'Done', cancelled: 'Cancelled' },
+    internalEventVisibilityLabel: 'Visibility',
+    internalEventVisibilityOptions: { team: 'Team', private: 'Private' },
+    internalEventSave: 'Save event',
+    internalEventDelete: 'Delete event',
+    internalEventDeleteConfirm: 'Delete this event?',
+    newEntryButton: 'New',
+    newEntryMenuBooking: 'Customer booking',
+    newEntryMenuInternalEvent: 'Internal event',
+    newEntryMenuBlockedRange: 'Block schedule',
   },
   es: {
     branchLabel: 'Sucursal',
@@ -222,6 +260,10 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     loading: 'Cargando agenda…',
     unavailableTitle: 'La agenda todavía no está configurada',
     unavailableDescription: 'Creá al menos una sucursal activa y un servicio de agenda para usar este calendario.',
+    loadErrorTitle: 'No se pudo cargar la agenda',
+    loadErrorDescription:
+      'Falló la carga de sucursales o servicios. Revisá la conexión, volvé a iniciar sesión o confirmá que tu rol tenga permiso scheduling:read.',
+    retryLoad: 'Reintentar',
     filtersTitle: 'Filtros',
     filtersDescription: 'Sucursal y servicio son obligatorios. Recurso es opcional.',
     timelineTitle: '',
@@ -317,6 +359,28 @@ export const schedulingCalendarCopyPresets: Record<'en' | 'es', SchedulingCalend
     blockedRangeDeleteTitle: '¿Eliminar este bloqueo?',
     blockedRangeDeleteDescription: 'El horario bloqueado se eliminará y volverá a estar disponible.',
     blockedRangeFallbackTitle: 'Bloqueado',
+    internalEventFallbackTitle: 'Evento interno',
+    internalEventCreateAction: 'Nuevo evento',
+    internalEventModalCreateTitle: 'Nuevo evento interno',
+    internalEventModalEditTitle: 'Editar evento interno',
+    internalEventTitleLabel: 'Título',
+    internalEventTitlePlaceholder: 'Reunión equipo, capacitación, almuerzo…',
+    internalEventDescriptionLabel: 'Notas',
+    internalEventResourceLabel: 'Recurso (opcional)',
+    internalEventResourceUnassigned: 'Tiempo personal (sin recurso)',
+    internalEventStartLabel: 'Inicio',
+    internalEventEndLabel: 'Fin',
+    internalEventStatusLabel: 'Estado',
+    internalEventStatusOptions: { scheduled: 'Programado', done: 'Realizado', cancelled: 'Cancelado' },
+    internalEventVisibilityLabel: 'Visibilidad',
+    internalEventVisibilityOptions: { team: 'Equipo', private: 'Privado' },
+    internalEventSave: 'Guardar evento',
+    internalEventDelete: 'Eliminar evento',
+    internalEventDeleteConfirm: '¿Eliminar este evento?',
+    newEntryButton: 'Nuevo',
+    newEntryMenuBooking: 'Turno cliente',
+    newEntryMenuInternalEvent: 'Evento interno',
+    newEntryMenuBlockedRange: 'Bloquear horario',
   },
 };
 
@@ -351,6 +415,14 @@ function startOfDay(value: Date): Date {
 
 function toDateInputValue(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+// HH:MM en zona local del navegador (los modales de evento/bloqueo trabajan
+// con horas locales para input type="time").
+function toLocalTimeInputValue(value: Date): string {
+  const hours = String(value.getHours()).padStart(2, '0');
+  const minutes = String(value.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
 }
 
 function statusClassName(status: BookingStatus): string {
@@ -388,15 +460,23 @@ function eventColor(status: BookingStatus): string {
   }
 }
 
-function buildVisibleDates(range: VisibleRange): string[] {
+/** Días YYYY-MM-DD que cruzan el rango visible del calendario, en reloj de pared de la sucursal/recurso (no local del navegador). */
+function buildVisibleDatesInZone(range: VisibleRange, wallTimeZone: string): string[] {
+  const tz = wallTimeZone.trim() || 'UTC';
   const dates: string[] = [];
-  const cursor = startOfDay(range.start);
-  const limit = startOfDay(range.end);
-  while (cursor < limit) {
-    dates.push(toDateInputValue(cursor));
-    cursor.setDate(cursor.getDate() + 1);
+  const seen = new Set<string>();
+  const stepMs = 60 * 60 * 1000;
+  let t = range.start.getTime();
+  const endMs = range.end.getTime();
+  while (t < endMs) {
+    const key = toDateInputValueFromIso(new Date(t).toISOString(), tz);
+    if (!seen.has(key)) {
+      seen.add(key);
+      dates.push(key);
+    }
+    t += stepMs;
   }
-  return dates;
+  return dates.sort();
 }
 
 function uniqueBookings(items: Booking[]): Booking[] {
@@ -423,12 +503,17 @@ function matchesSearch(searchQuery: string, pieces: Array<string | undefined | n
   return pieces.some((piece) => piece?.toLocaleLowerCase().includes(normalized));
 }
 
-function matchesCreateEditorSlot(editor: SchedulingBookingCreateEditor, slot: TimeSlot): boolean {
+function matchesCreateEditorSlot(
+  editor: SchedulingBookingCreateEditor,
+  slot: TimeSlot,
+  branchTimezone?: string | null,
+): boolean {
+  const tz = slot.timezone?.trim() || branchTimezone?.trim() || null;
   return (
     slot.resource_id === editor.resourceId &&
-    toDateInputValueFromIso(slot.start_at) === editor.date &&
-    toTimeInputValue(slot.start_at) === editor.startTime &&
-    toTimeInputValue(slot.end_at) === editor.endTime
+    toDateInputValueFromIso(slot.start_at, tz) === editor.date &&
+    toTimeInputValue(slot.start_at, tz) === editor.startTime &&
+    toTimeInputValue(slot.end_at, tz) === editor.endTime
   );
 }
 
@@ -455,6 +540,11 @@ export function SchedulingCalendar({
   const [actionError, setActionError] = useState<string | null>(null);
   const [modalState, setModalState] = useState<SchedulingBookingModalState>({ open: false });
   const [blockedModalState, setBlockedModalState] = useState<BlockedRangeModalState>({ open: false });
+  // Contexto del último gesto de creación (click/select/+Nuevo). Lo guardamos
+  // en un ref para que el switcher de tipo dentro de los modales pueda preservar
+  // fecha/hora al cambiar de tipo sin perder lo que el usuario eligió.
+  const lastEntryContextRef = useRef<SchedulingEntryContext | null>(null);
+  const [internalEventModalState, setInternalEventModalState] = useState<InternalEventModalState>({ open: false });
   const deferredSearch = useDeferredValue(searchQuery);
 
   // useMutation ejecuta mutationFn en un tick posterior; sin ref el closure puede ver modalState cerrado o slot null.
@@ -490,18 +580,22 @@ export function SchedulingCalendar({
     staleTime: 60_000,
   });
 
+  const schedulingCalendarTimeZone = useMemo(() => {
+    const branchList = branchesQuery.data ?? [];
+    const branch = branchList.find((b) => b.id === selectedBranchId) ?? null;
+    if (!branch) {
+      return '';
+    }
+    const resourceList = resourcesQuery.data ?? [];
+    const resource = selectedResourceId ? resourceList.find((r) => r.id === selectedResourceId) ?? null : null;
+    return effectiveSchedulingTimeZone(resource, branch);
+  }, [branchesQuery.data, selectedBranchId, resourcesQuery.data, selectedResourceId]);
+
   const availabilityRulesQuery = useQuery<AvailabilityRule[]>({
     queryKey: schedulingKeys.availabilityRules(selectedBranchId, selectedResourceId),
     queryFn: () => client.listAvailabilityRules(selectedBranchId, selectedResourceId),
     enabled: Boolean(selectedBranchId),
     staleTime: 60_000,
-  });
-
-  const dashboardQuery = useQuery<DashboardStats>({
-    queryKey: schedulingKeys.dashboard(selectedBranchId, focusedDate),
-    queryFn: () => client.getDashboard(selectedBranchId, focusedDate),
-    enabled: Boolean(selectedBranchId),
-    staleTime: 20_000,
   });
 
   const createEditorDate = modalState.open && modalState.mode === 'create' ? modalState.editor.date : focusedDate;
@@ -519,7 +613,10 @@ export function SchedulingCalendar({
     staleTime: 10_000,
   });
 
-  const rangeDates = useMemo(() => buildVisibleDates(visibleRange), [visibleRange]);
+  const rangeDates = useMemo(
+    () => buildVisibleDatesInZone(visibleRange, schedulingCalendarTimeZone.trim() || 'UTC'),
+    [visibleRange, schedulingCalendarTimeZone],
+  );
 
   const visibleSlotsQuery = useQuery<TimeSlot[]>({
     queryKey: schedulingKeys.visibleSlotsRange(
@@ -606,6 +703,37 @@ export function SchedulingCalendar({
     staleTime: 10_000,
   });
 
+  // Eventos internos del rango visible. La query usa from/to en RFC3339 para
+  // coincidir con el shape del backend (ListCalendarEvents acepta filtros
+  // temporales). Sin selectedBranchId, queda deshabilitada y no dispara fetch.
+  const internalEventsQuery = useQuery<InternalEvent[]>({
+    queryKey: schedulingKeys.internalEventsRange(
+      selectedBranchId,
+      rangeDates[0] ?? focusedDate,
+      rangeDates[rangeDates.length - 1] ?? focusedDate,
+    ),
+    queryFn: async () => {
+      if (!selectedBranchId || rangeDates.length === 0) {
+        return [];
+      }
+      const firstDate = rangeDates[0] ?? focusedDate;
+      const lastDate = rangeDates[rangeDates.length - 1] ?? focusedDate;
+      const fromIso = `${firstDate}T00:00:00Z`;
+      // El último día del rango debe incluirse completo, así que el `to`
+      // exclusivo cae al inicio del día siguiente.
+      const lastDateObj = new Date(`${lastDate}T00:00:00Z`);
+      lastDateObj.setUTCDate(lastDateObj.getUTCDate() + 1);
+      const toIso = lastDateObj.toISOString().replace(/\.\d{3}Z$/, 'Z');
+      return client.listInternalEvents({
+        branch_id: selectedBranchId,
+        from: fromIso,
+        to: toIso,
+      });
+    },
+    enabled: Boolean(selectedBranchId && rangeDates.length > 0),
+    staleTime: 10_000,
+  });
+
   const branches = branchesQuery.data ?? [];
   const services = servicesQuery.data ?? [];
   const resources = resourcesQuery.data ?? [];
@@ -637,9 +765,10 @@ export function SchedulingCalendar({
 
   const visibleSlots = visibleSlotsQuery.data ?? [];
   const visibleSlotsByDate = useMemo(() => {
+    const branchTz = selectedBranch?.timezone?.trim() || null;
     const grouped = new Map<string, TimeSlot[]>();
     for (const slot of visibleSlots) {
-      const day = toDateInputValueFromIso(slot.start_at);
+      const day = toDateInputValueFromIso(slot.start_at, slot.timezone?.trim() || branchTz);
       const items = grouped.get(day);
       if (items) {
         items.push(slot);
@@ -648,7 +777,7 @@ export function SchedulingCalendar({
       }
     }
     return grouped;
-  }, [visibleSlots]);
+  }, [visibleSlots, selectedBranch?.timezone]);
 
   const businessHours = useMemo(
     () => buildSchedulingBusinessHours(availabilityRules, selectedResourceId),
@@ -695,6 +824,7 @@ export function SchedulingCalendar({
         ),
       }),
       queryClient.invalidateQueries({ queryKey: ['scheduling', 'blocked-ranges-range'] }),
+      queryClient.invalidateQueries({ queryKey: ['scheduling', 'internal-events-range'] }),
     ]);
   };
 
@@ -749,6 +879,58 @@ export function SchedulingCalendar({
     onMutate: () => setActionError(null),
     onSuccess: async () => {
       setBlockedModalState({ open: false });
+      await invalidateSchedule();
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
+  // ── internal events (agenda interna) ─────────────────────────────────────
+  // El draft viene con `date`/`startTime`/`endTime` como reloj de pared en la
+  // zona del navegador (mismo patrón que BlockedRange). El backend valida en
+  // UTC, así que serializamos con `new Date(...).toISOString()` para que el
+  // server reciba un instante ISO inequívoco.
+  const buildInternalEventPayload = (draft: InternalEventDraft): CreateInternalEventPayload => {
+    const startAt = new Date(`${draft.date}T${draft.startTime}:00`).toISOString();
+    const endAt = new Date(`${draft.date}T${draft.endTime}:00`).toISOString();
+    return {
+      branch_id: selectedBranchId || null,
+      resource_id: draft.resourceId || null,
+      title: draft.title.trim(),
+      description: draft.description.trim() || undefined,
+      start_at: startAt,
+      end_at: endAt,
+      status: draft.status,
+      visibility: draft.visibility,
+    };
+  };
+
+  const createInternalEventMutation = useMutation<InternalEvent, Error, InternalEventDraft>({
+    mutationFn: async (draft) => client.createInternalEvent(buildInternalEventPayload(draft)),
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      setInternalEventModalState({ open: false });
+      await invalidateSchedule();
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
+  const updateInternalEventMutation = useMutation<InternalEvent, Error, { id: string; draft: InternalEventDraft }>({
+    mutationFn: async ({ id, draft }) => client.updateInternalEvent(id, buildInternalEventPayload(draft)),
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      setInternalEventModalState({ open: false });
+      await invalidateSchedule();
+    },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
+  const deleteInternalEventMutation = useMutation<void, Error, string>({
+    mutationFn: async (id) => {
+      await client.deleteInternalEvent(id);
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      setInternalEventModalState({ open: false });
       await invalidateSchedule();
     },
     onError: (error: Error) => setActionError(error.message),
@@ -882,24 +1064,9 @@ export function SchedulingCalendar({
     );
   }, [visibleSlots, deferredSearch, selectedService?.name, locale]);
 
-  const freeSlotCalendarEvents = useMemo<EventInput[]>(
-    () =>
-      filteredFreeSlots.map((slot) => ({
-        id: `free-slot:${buildSlotIdentity(slot.resource_id, slot.start_at, slot.end_at)}`,
-        title: copy.openBooking,
-        start: slot.start_at,
-        end: slot.end_at,
-        backgroundColor: '#d1fae5',
-        borderColor: '#34d399',
-        textColor: '#065f46',
-        classNames: ['modules-scheduling__calendar-event--free-slot'],
-        editable: false,
-        extendedProps: {
-          freeTimeSlot: slot,
-        },
-      })),
-    [filteredFreeSlots, copy.openBooking],
-  );
+  // Los huecos libres no se pintan como eventos: ensucian la grilla y duplican la
+  // celda vacía nativa de FullCalendar, que ya permite crear reservas con click.
+  const freeSlotCalendarEvents = useMemo<EventInput[]>(() => [], []);
 
   const calendarEvents = useMemo(
     () => buildSchedulingCalendarEvents(filteredBookings, scheduleServices, filteredResources, eventColor),
@@ -928,16 +1095,52 @@ export function SchedulingCalendar({
     [blockedRanges, copy.blockedRangeKindOptions, copy.blockedRangeFallbackTitle],
   );
 
+  // Eventos internos (reuniones, capacitaciones, tiempo personal del owner).
+  // Color índigo distintivo: ni el verde/naranja de los turnos ni el gris de los
+  // bloqueos. Cancelados en gris claro tachado.
+  const internalEvents = internalEventsQuery.data ?? [];
+  const internalEventInputs = useMemo<EventInput[]>(
+    () =>
+      internalEvents.map((event) => {
+        const cancelled = event.status === 'cancelled';
+        return {
+          id: `internal-event:${event.id}`,
+          title: event.title || copy.internalEventFallbackTitle,
+          start: event.start_at,
+          end: event.end_at,
+          backgroundColor: cancelled ? '#e5e7eb' : '#6366f1',
+          borderColor: cancelled ? '#9ca3af' : '#4338ca',
+          textColor: cancelled ? '#6b7280' : '#ffffff',
+          classNames: cancelled
+            ? [
+                'modules-scheduling__calendar-event--internal',
+                'modules-scheduling__calendar-event--internal-cancelled',
+              ]
+            : ['modules-scheduling__calendar-event--internal'],
+          editable: true,
+          durationEditable: true,
+          extendedProps: {
+            internalEvent: event,
+          },
+        };
+      }),
+    [internalEvents, copy.internalEventFallbackTitle],
+  );
+
   const fullCalendarEventInputs = useMemo(
     () => [
       ...freeSlotCalendarEvents,
       ...blockedRangeEventInputs,
+      ...internalEventInputs,
       ...buildFullCalendarEventInputs(calendarEvents),
     ],
-    [freeSlotCalendarEvents, blockedRangeEventInputs, calendarEvents],
+    [freeSlotCalendarEvents, blockedRangeEventInputs, internalEventInputs, calendarEvents],
   );
 
-  const resolveDaySlots = (value: Date): TimeSlot[] => visibleSlotsByDate.get(toDateInputValue(value)) ?? [];
+  const resolveDaySlots = (value: Date): TimeSlot[] =>
+    visibleSlotsByDate.get(
+      toDateInputValueFromIso(value.toISOString(), schedulingCalendarTimeZone.trim() || 'UTC'),
+    ) ?? [];
 
   const handleSelectAllow = (info: CalendarSelectAllowArg) => {
     if (!selectedService || !info.start || !info.end) {
@@ -1058,8 +1261,9 @@ export function SchedulingCalendar({
   };
 
   const openCreateBookingModal = (slot: TimeSlot, resourceName?: string) => {
-    const dayKey = toDateInputValueFromIso(slot.start_at);
-    const sameDaySlots = visibleSlots.filter((s) => toDateInputValueFromIso(s.start_at) === dayKey);
+    const tz = slot.timezone?.trim() || selectedBranch?.timezone?.trim() || null;
+    const dayKey = toDateInputValueFromIso(slot.start_at, tz);
+    const sameDaySlots = visibleSlots.filter((s) => toDateInputValueFromIso(s.start_at, tz) === dayKey);
     setModalState(
       buildSchedulingCreateModalStateFromSlot(
         slot,
@@ -1067,6 +1271,7 @@ export function SchedulingCalendar({
         sameDaySlots.length > 0 ? sameDaySlots : [slot],
         filteredResources,
         resourceName,
+        selectedBranch?.timezone,
       ),
     );
   };
@@ -1098,14 +1303,18 @@ export function SchedulingCalendar({
       }
       const editor = current.editor;
       const resourceMatchInner = filteredResources.find((resource) => resource.id === editor.resourceId);
+      const branchTz = selectedBranch?.timezone;
       const matchedOrSynthetic =
-        slotOptions.find((slot) => matchesCreateEditorSlot(editor, slot)) ??
+        slotOptions.find((s) => matchesCreateEditorSlot(editor, s, branchTz)) ??
         (current.service
           ? buildSyntheticTimeSlotFromEditor(editor, current.service, resourceMatchInner, selectedBranch)
           : null);
-      // Mientras llegan slots/recursos, no pisar el slot que ya armó el calendario (date click / drag).
-      const slotToSet =
-        matchedOrSynthetic ?? (createSlotsQuery.isFetching && current.slot ? current.slot : null);
+      // Durante refetch: solo conservar el slot anterior si el editor sigue alineado (evita guardar horario viejo).
+      const keepStaleSlot =
+        createSlotsQuery.isFetching &&
+        current.slot &&
+        matchesCreateEditorSlot(editor, current.slot, branchTz);
+      const slotToSet = matchedOrSynthetic ?? (keepStaleSlot ? current.slot : null);
 
       const nextResourceName =
         resourceMatchInner?.name ??
@@ -1177,17 +1386,84 @@ export function SchedulingCalendar({
     });
   };
 
-  const openBlockedRangeCreateModal = () => {
+  const openBlockedRangeCreateModal = (context?: SchedulingEntryContext) => {
     if (!selectedBranchId) {
       return;
     }
+    const date = context?.date ?? focusedDate;
+    const base = emptyBlockedRangeDraft(date);
+    const initial: typeof base = {
+      ...base,
+      resourceId: selectedResourceId ?? '',
+      ...(context?.start ? { startTime: toLocalTimeInputValue(context.start) } : {}),
+      ...(context?.end ? { endTime: toLocalTimeInputValue(context.end) } : {}),
+    };
     setBlockedModalState({
       open: true,
       mode: 'create',
       branchId: selectedBranchId,
       resourceId: selectedResourceId,
       resourceOptions: filteredResources.map((resource) => ({ id: resource.id, name: resource.name })),
-      initial: { ...emptyBlockedRangeDraft(focusedDate), resourceId: selectedResourceId ?? '' },
+      initial,
+    });
+  };
+
+  const openInternalEventCreateModal = (context?: SchedulingEntryContext) => {
+    const date = context?.date ?? focusedDate;
+    const overrides: Partial<InternalEventDraft> = { resourceId: selectedResourceId ?? '' };
+    if (context?.start) overrides.startTime = toLocalTimeInputValue(context.start);
+    if (context?.end) overrides.endTime = toLocalTimeInputValue(context.end);
+    setInternalEventModalState({
+      open: true,
+      mode: 'create',
+      branchId: selectedBranchId,
+      resourceOptions: filteredResources.map((resource) => ({ id: resource.id, name: resource.name })),
+      initial: emptyInternalEventDraft(date, overrides),
+    });
+  };
+
+  // openEntryDefault — punto de entrada único: click en hueco vacío, gesto de
+  // selección sobre el grid, o botón "+ Nuevo" del toolbar. Abre directamente
+  // el modal de evento interno con la fecha/hora del gesto pre-cargadas, listo
+  // para tipear título y guardar (UX estilo Google Calendar). Si el usuario
+  // quiere otra cosa (turno o bloqueo), usa el switcher embebido en el header
+  // del modal — handleSwitchType abajo lo cierra y abre el target preservando
+  // el contexto.
+  const openEntryDefault = (context: SchedulingEntryContext) => {
+    setFocusedDate(context.date);
+    lastEntryContextRef.current = context;
+    openInternalEventCreateModal(context);
+  };
+
+  const handleSwitchType = (target: SchedulingEntryType) => {
+    const context = lastEntryContextRef.current ?? { date: focusedDate };
+    // Cerramos todos los modales de creación antes de abrir el destino, así no
+    // quedan dos overlays montados a la vez.
+    setInternalEventModalState({ open: false });
+    setBlockedModalState({ open: false });
+    setModalState({ open: false });
+    if (target === 'booking') {
+      const start = context.start ?? new Date(`${context.date}T09:00:00`);
+      openCreateFromStart(start, start.toISOString(), context.end ?? null, context.end?.toISOString() ?? null);
+      return;
+    }
+    if (target === 'internal_event') {
+      openInternalEventCreateModal(context);
+      return;
+    }
+    if (target === 'blocked_range') {
+      openBlockedRangeCreateModal(context);
+    }
+  };
+
+  const openInternalEventEditModal = (event: InternalEvent) => {
+    setInternalEventModalState({
+      open: true,
+      mode: 'edit',
+      id: event.id,
+      branchId: event.branch_id ?? selectedBranchId,
+      resourceOptions: filteredResources.map((resource) => ({ id: resource.id, name: resource.name })),
+      initial: internalEventDraftFromEntity(event),
     });
   };
 
@@ -1202,6 +1478,11 @@ export function SchedulingCalendar({
       openBlockedRangeEditModal(blockedRange);
       return;
     }
+    const internalEvent = info.event.extendedProps.internalEvent as InternalEvent | undefined;
+    if (internalEvent) {
+      openInternalEventEditModal(internalEvent);
+      return;
+    }
     const calendarEvent = info.event.extendedProps.calendarEvent as CalendarEvent | undefined;
     const sourceBooking = calendarEvent?.sourceBooking;
     if (!sourceBooking) {
@@ -1211,27 +1492,16 @@ export function SchedulingCalendar({
   };
 
   const handleDateClick = (info: CalendarDateClickArg) => {
-    setFocusedDate(info.dateStr.slice(0, 10));
-    openCreateFromStart(info.date, info.date.toISOString());
+    openEntryDefault({ date: info.dateStr.slice(0, 10), start: info.date });
   };
 
   const handleSelect = (info: CalendarDateSelectArg) => {
-    setFocusedDate(info.startStr.slice(0, 10));
     calendarRef.current?.getApi().unselect();
-    const nextState = buildSchedulingCreateModalStateFromStart({
+    openEntryDefault({
+      date: info.startStr.slice(0, 10),
       start: info.start,
-      startAt: info.start.toISOString(),
       end: info.end,
-      endAt: info.end.toISOString(),
-      slots: resolveDaySlots(info.start),
-      selectedService,
-      selectedResource,
-      filteredResources,
-      selectedBranch,
     });
-    if (nextState) {
-      setModalState(nextState);
-    }
   };
 
   const persistBookingReschedule = async (
@@ -1400,6 +1670,7 @@ export function SchedulingCalendar({
   }, [locale]);
 
   const loading = branchesQuery.isLoading || servicesQuery.isLoading;
+  const loadFailed = branchesQuery.isError || servicesQuery.isError;
 
   if (loading) {
     return (
@@ -1407,6 +1678,34 @@ export function SchedulingCalendar({
         <div className="card modules-scheduling__empty">
           <div className="spinner" />
           <p>{copy.loading}</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (loadFailed) {
+    const err = branchesQuery.error ?? servicesQuery.error;
+    const detail = err instanceof Error ? err.message : String(err);
+    return (
+      <section className={`modules-scheduling ${className}`.trim()}>
+        <div className="card empty-state">
+          <h3 className="text-section-title">{copy.loadErrorTitle}</h3>
+          <p>{copy.loadErrorDescription}</p>
+          <p className="text-secondary text-sm mono" style={{ marginTop: '0.75rem' }}>
+            {detail}
+          </p>
+          <p style={{ marginTop: '1rem' }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                void queryClient.invalidateQueries({ queryKey: schedulingKeys.branches });
+                void queryClient.invalidateQueries({ queryKey: schedulingKeys.services });
+              }}
+            >
+              {copy.retryLoad}
+            </button>
+          </p>
         </div>
       </section>
     );
@@ -1449,7 +1748,8 @@ export function SchedulingCalendar({
               api?.today();
               updateCalendarTitle();
               scrollCalendarToRelevantTime();
-              setFocusedDate(toDateInputValue(new Date()));
+              const tz = schedulingCalendarTimeZone.trim() || 'UTC';
+              setFocusedDate(toDateInputValueFromIso(new Date().toISOString(), tz));
             }}
             onPrev={() => {
               const api = calendarRef.current?.getApi();
@@ -1471,18 +1771,62 @@ export function SchedulingCalendar({
               });
             }}
             toolbarTrailing={
-              <button
-                type="button"
-                className="btn-secondary btn-sm"
-                onClick={openBlockedRangeCreateModal}
-                disabled={!selectedBranchId}
+              <div
+                className="modules-scheduling__toolbar-actions"
+                style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}
               >
-                {copy.blockedRangeAction}
-              </button>
+                {branches.length > 1 ? (
+                  <select
+                    aria-label={copy.branchLabel}
+                    value={selectedBranchId ?? ''}
+                    onChange={(event) => setSelectedBranchId(event.target.value || null)}
+                    data-testid="scheduling-toolbar-branch"
+                    style={{ minWidth: '10rem' }}
+                  >
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {filteredResources.length > 1 ? (
+                  <div
+                    className="modules-scheduling__resource-layers"
+                    role="group"
+                    aria-label={copy.resourceLabel}
+                    style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}
+                  >
+                    <button
+                      type="button"
+                      className={`btn-sm ${selectedResourceId === null ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setSelectedResourceId(null)}
+                      data-testid="scheduling-resource-layer-all"
+                    >
+                      {copy.anyResource}
+                    </button>
+                    {filteredResources.map((resource) => {
+                      const active = selectedResourceId === resource.id;
+                      return (
+                        <button
+                          key={resource.id}
+                          type="button"
+                          className={`btn-sm ${active ? 'btn-primary' : 'btn-secondary'}`}
+                          onClick={() => setSelectedResourceId(active ? null : resource.id)}
+                          data-testid={`scheduling-resource-layer-${resource.id}`}
+                        >
+                          {resource.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             }
             scrollTime={timeGridViewport.scrollTime}
             scrollTimeReset={false}
             slotMinTime={timeGridViewport.slotMinTime}
+            timeZone={schedulingCalendarTimeZone.trim() || null}
             events={fullCalendarEventInputs}
             businessHours={businessHours}
             editable
@@ -1508,86 +1852,11 @@ export function SchedulingCalendar({
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <h2>{copy.filtersTitle}</h2>
-            <p className="text-secondary">{copy.filtersDescription}</p>
-          </div>
-        </div>
-        <div className="modules-scheduling__filters">
-          <div className="form-group grow">
-            <label htmlFor="scheduling-branch">{copy.branchLabel}</label>
-            <select id="scheduling-branch" value={selectedBranchId ?? ''} onChange={(event) => setSelectedBranchId(event.target.value || null)}>
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group grow">
-            <label htmlFor="scheduling-service">{copy.serviceLabel}</label>
-            <select
-              id="scheduling-service"
-              value={selectedServiceId ?? ''}
-              onChange={(event) => setSelectedServiceId(event.target.value || null)}
-            >
-              {scheduleServices.map((service) => (
-                <option key={service.id} value={service.id}>
-                  {service.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group grow">
-            <label htmlFor="scheduling-resource">{copy.resourceLabel}</label>
-            <select
-              id="scheduling-resource"
-              value={selectedResourceId ?? ''}
-              onChange={(event) => setSelectedResourceId(event.target.value || null)}
-            >
-              <option value="">{copy.anyResource}</option>
-              {filteredResources.map((resource) => (
-                <option key={resource.id} value={resource.id}>
-                  {resource.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label htmlFor="scheduling-date">{copy.focusDateLabel}</label>
-            <SchedulingDateInput
-              id="scheduling-date"
-              locale={locale}
-              value={focusedDate}
-              onValueChange={(nextDate) => {
-                setFocusedDate(nextDate);
-                calendarRef.current?.getApi().gotoDate(nextDate);
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="modules-scheduling__summary stats-grid">
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryBookings}</div>
-          <div className="stat-value">{dashboardQuery.data?.bookings_today ?? '—'}</div>
-        </article>
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryConfirmed}</div>
-          <div className="stat-value">{dashboardQuery.data?.confirmed_bookings_today ?? '—'}</div>
-        </article>
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryQueues}</div>
-          <div className="stat-value">{dashboardQuery.data?.active_queues ?? '—'}</div>
-        </article>
-        <article className="stat-card">
-          <div className="stat-label">{copy.summaryWaiting}</div>
-          <div className="stat-value">{dashboardQuery.data?.waiting_tickets ?? '—'}</div>
-        </article>
-      </div>
+      {/* Card "Filtros" eliminada: branch + resource layers ahora viven en el
+          toolbarTrailing del calendario (al lado del botón "+ Nuevo"). El
+          dropdown de branch solo aparece si hay >1 sucursal; los chips de
+          recurso solo si hay >1 recurso. Ver deuda "branch global" en
+          docs/DEUDA_TECNICA.md. */}
 
       <SchedulingBookingModal
         state={modalState}
@@ -1603,6 +1872,7 @@ export function SchedulingCalendar({
         onAction={async (action, booking) => {
           await handleModalAction(action, booking);
         }}
+        onSwitchType={handleSwitchType}
       />
 
       <BlockedRangeModal
@@ -1625,6 +1895,32 @@ export function SchedulingCalendar({
         onDelete={async (id) => {
           await deleteBlockedRangeMutation.mutateAsync(id);
         }}
+        onSwitchType={handleSwitchType}
+        bookingEnabled={Boolean(selectedService && selectedBranchId)}
+      />
+
+      <SchedulingInternalEventModal
+        state={internalEventModalState}
+        copy={copy}
+        locale={locale}
+        saving={
+          createInternalEventMutation.isPending ||
+          updateInternalEventMutation.isPending ||
+          deleteInternalEventMutation.isPending
+        }
+        onClose={() => setInternalEventModalState({ open: false })}
+        onSave={async (draft) => {
+          if (internalEventModalState.open && internalEventModalState.mode === 'edit') {
+            await updateInternalEventMutation.mutateAsync({ id: internalEventModalState.id, draft });
+          } else {
+            await createInternalEventMutation.mutateAsync(draft);
+          }
+        }}
+        onDelete={async (id) => {
+          await deleteInternalEventMutation.mutateAsync(id);
+        }}
+        onSwitchType={handleSwitchType}
+        bookingEnabled={Boolean(selectedService && selectedBranchId)}
       />
     </section>
   );

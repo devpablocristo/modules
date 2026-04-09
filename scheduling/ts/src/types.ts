@@ -169,6 +169,63 @@ export type Booking = {
   updated_at: string;
 };
 
+// InternalEventStatus / InternalEventVisibility espejo del dominio Go en
+// modules/scheduling/go/domain/entities.go (CalendarEventStatus / Visibility).
+// El nombre TS evita choque con el wrapper `CalendarEvent` de abajo, que es el
+// item renderizable de la grilla de FullCalendar.
+export type InternalEventStatus = 'scheduled' | 'done' | 'cancelled';
+export type InternalEventVisibility = 'team' | 'private';
+
+// InternalEvent es la entidad persistida en la tabla scheduling_calendar_events.
+// No es un turno cliente: no tiene customer ni service ni lifecycle de booking.
+// Si tiene `resource_id`, ocupa ese recurso y resta del slot picker externo;
+// sin `resource_id` es tiempo personal del owner y no afecta disponibilidad.
+export type InternalEvent = {
+  id: string;
+  org_id: string;
+  branch_id?: string | null;
+  resource_id?: string | null;
+  title: string;
+  description?: string;
+  start_at: string;
+  end_at: string;
+  all_day: boolean;
+  status: InternalEventStatus;
+  visibility: InternalEventVisibility;
+  created_by?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateInternalEventPayload = {
+  branch_id?: string | null;
+  resource_id?: string | null;
+  title: string;
+  description?: string;
+  start_at: string;
+  end_at: string;
+  all_day?: boolean;
+  status?: InternalEventStatus;
+  visibility?: InternalEventVisibility;
+  metadata?: Record<string, unknown>;
+};
+
+export type UpdateInternalEventPayload = CreateInternalEventPayload;
+
+export type ListInternalEventsQuery = {
+  branch_id?: string | null;
+  resource_id?: string | null;
+  from?: string | null;
+  to?: string | null;
+  status?: InternalEventStatus | null;
+};
+
+// CalendarEvent es el wrapper que renderiza la grilla de FullCalendar para
+// turnos cliente. Los eventos internos NO usan este wrapper: se inyectan
+// directamente como `EventInput` con `extendedProps.internalEvent`. Mantener
+// los dos paths separados evita meter branches por kind en cada render y deja
+// el wrapper acotado al dominio que originalmente representaba.
 export type CalendarEventKind = 'booking';
 export type CalendarEventSourceType = 'booking';
 
@@ -570,6 +627,10 @@ export type SchedulingCalendarCopy = {
   loading: string;
   unavailableTitle: string;
   unavailableDescription: string;
+  /** Fallo al cargar sucursales/servicios (red, permisos, servidor): no confundir con “sin configurar”. */
+  loadErrorTitle: string;
+  loadErrorDescription: string;
+  retryLoad: string;
   filtersTitle: string;
   filtersDescription: string;
   timelineTitle: string;
@@ -650,4 +711,40 @@ export type SchedulingCalendarCopy = {
   blockedRangeDeleteTitle: string;
   blockedRangeDeleteDescription: string;
   blockedRangeFallbackTitle: string;
+  // copy del flujo de eventos internos (Etapa 3 / agenda Google-like)
+  internalEventFallbackTitle: string;
+  internalEventCreateAction: string;
+  internalEventModalCreateTitle: string;
+  internalEventModalEditTitle: string;
+  internalEventTitleLabel: string;
+  internalEventTitlePlaceholder: string;
+  internalEventDescriptionLabel: string;
+  internalEventResourceLabel: string;
+  internalEventResourceUnassigned: string;
+  internalEventStartLabel: string;
+  internalEventEndLabel: string;
+  internalEventStatusLabel: string;
+  internalEventStatusOptions: { scheduled: string; done: string; cancelled: string };
+  internalEventVisibilityLabel: string;
+  internalEventVisibilityOptions: { team: string; private: string };
+  internalEventSave: string;
+  internalEventDelete: string;
+  internalEventDeleteConfirm: string;
+  newEntryButton: string;
+  newEntryMenuBooking: string;
+  newEntryMenuInternalEvent: string;
+  newEntryMenuBlockedRange: string;
+};
+
+// Tipo de entrada que el dueño puede crear desde el calendario interno.
+// Se usa en el switcher de tipo embebido en los 3 modales (booking, evento
+// interno, bloqueo) para que el usuario pueda alternar sin volver al toolbar.
+export type SchedulingEntryType = 'booking' | 'internal_event' | 'blocked_range';
+
+// Contexto que se preserva al cambiar de tipo: fecha + rango horario opcional
+// del gesto original (click o select sobre el grid).
+export type SchedulingEntryContext = {
+  date: string;
+  start?: Date;
+  end?: Date;
 };

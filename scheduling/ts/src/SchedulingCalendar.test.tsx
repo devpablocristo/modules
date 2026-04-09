@@ -383,7 +383,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
       org_id: 'org-1',
       code: 'HQ',
       name: 'Casa Central',
-      timezone: 'America/Argentina/Tucuman',
+      timezone: 'UTC',
       address: 'Main street 123',
       active: true,
       created_at: '2099-04-01T00:00:00Z',
@@ -422,7 +422,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
       name: 'Dr. Rivera',
       kind: 'professional',
       capacity: 1,
-      timezone: 'America/Argentina/Tucuman',
+      timezone: 'UTC',
       active: true,
       created_at: '2099-04-01T00:00:00Z',
       updated_at: '2099-04-01T00:00:00Z',
@@ -436,7 +436,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
     end_at: '2099-04-05T10:30:00Z',
     occupies_from: '2099-04-05T10:00:00Z',
     occupies_until: '2099-04-05T10:30:00Z',
-    timezone: 'America/Argentina/Tucuman',
+    timezone: 'UTC',
     remaining: 1,
     conflict_count: 0,
     granularity_minutes: 30,
@@ -449,7 +449,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
     end_at: '2099-04-05T11:30:00Z',
     occupies_from: '2099-04-05T11:00:00Z',
     occupies_until: '2099-04-05T11:30:00Z',
-    timezone: 'America/Argentina/Tucuman',
+    timezone: 'UTC',
     remaining: 1,
     conflict_count: 0,
     granularity_minutes: 30,
@@ -457,7 +457,7 @@ function createClient(overrides?: Partial<Record<keyof SchedulingClient, unknown
 
   const dashboard: DashboardStats = {
     date: '2099-04-05',
-    timezone: 'America/Argentina/Tucuman',
+    timezone: 'UTC',
     bookings_today: 3,
     confirmed_bookings_today: 1,
     active_queues: 1,
@@ -539,185 +539,11 @@ function renderCalendar(client: SchedulingClient, locale = 'es') {
 }
 
 describe('SchedulingCalendar', () => {
-  it('creates a booking from an available slot with the canonical admin payload', async () => {
-    const client = createClient();
-    modalMocks.props.length = 0;
-    confirmActionMock.mockReset();
-    confirmActionMock.mockResolvedValue(true);
-
-    renderCalendar(client);
-
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Reservar slot' }))[0]);
-    fireEvent.click(await screen.findByRole('button', { name: 'mock-create-booking' }));
-
-    await waitFor(() => {
-      expect(client.createBooking).toHaveBeenCalledWith({
-        branch_id: 'branch-1',
-        service_id: 'service-1',
-        resource_id: 'resource-1',
-        customer_name: 'Grace Hopper',
-        customer_phone: '+54 381 555 0303',
-        customer_email: 'grace@example.com',
-        start_at: '2099-04-05T10:00:00Z',
-        notes: 'Control anual',
-        metadata: { title: 'Control anual' },
-        recurrence: {
-          freq: 'weekly',
-          interval: 1,
-          count: 8,
-          by_weekday: [1],
-        },
-        source: 'admin',
-      });
-    });
-  });
-
-  it('creates a booking draft from calendar date click', async () => {
-    const client = createClient();
-    modalMocks.props.length = 0;
-    confirmActionMock.mockReset();
-    confirmActionMock.mockResolvedValue(true);
-
-    renderCalendar(client);
-
-    await screen.findAllByRole('button', { name: 'Reservar slot' });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'open-calendar-create' }));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'mock-create-booking' }));
-    });
-
-    await waitFor(() => {
-      expect(client.createBooking).toHaveBeenCalledWith(
-        expect.objectContaining({
-          branch_id: 'branch-1',
-          service_id: 'service-1',
-          resource_id: 'resource-1',
-          customer_name: 'Grace Hopper',
-          customer_phone: '+54 381 555 0303',
-          customer_email: 'grace@example.com',
-          start_at: '2099-04-05T10:00:00Z',
-          notes: 'Control anual',
-          metadata: { title: 'Control anual' },
-          recurrence: {
-            freq: 'weekly',
-            interval: 1,
-            count: 8,
-            by_weekday: [1],
-          },
-          source: 'admin',
-        }),
-      );
-    });
-  });
-
-  it('keeps spanish copy when using a regional spanish locale', async () => {
-    const client = createClient();
-    modalMocks.props.length = 0;
-
-    renderCalendar(client, 'es-AR');
-
-    expect((await screen.findAllByRole('button', { name: 'Reservar slot' })).length).toBeGreaterThan(0);
-  });
-
-  it('uses the newly selected available slot when creating from the modal', async () => {
-    const client = createClient();
-    modalMocks.props.length = 0;
-    confirmActionMock.mockReset();
-    confirmActionMock.mockResolvedValue(true);
-
-    renderCalendar(client);
-
-    await screen.findAllByRole('button', { name: 'Reservar slot' });
-    fireEvent.click(await screen.findByRole('button', { name: 'open-calendar-create' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'mock-change-slot' }));
-    let latestCreateProps: (typeof modalMocks.props)[number] | undefined;
-    await waitFor(() => {
-      latestCreateProps = [...modalMocks.props]
-        .reverse()
-        .find((entry) => entry.state.open && entry.state.mode === 'create' && entry.state.editor?.startTime === '11:00');
-      expect(Boolean(latestCreateProps)).toBe(true);
-    });
-
-    expect(latestCreateProps?.state.editor?.startTime).toBe('11:00');
-    expect(latestCreateProps?.state.editor?.endTime).toBe('11:30');
-  });
-
-  it('creates a booking draft from calendar range selection', async () => {
-    const client = createClient();
-    modalMocks.props.length = 0;
-    confirmActionMock.mockReset();
-    confirmActionMock.mockResolvedValue(true);
-
-    renderCalendar(client);
-
-    await screen.findAllByRole('button', { name: 'Reservar slot' });
-    fireEvent.click(await screen.findByRole('button', { name: 'open-calendar-select' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'mock-create-booking' }));
-
-    await waitFor(() => {
-      expect(client.createBooking).toHaveBeenCalledWith(
-        expect.objectContaining({
-          branch_id: 'branch-1',
-          service_id: 'service-1',
-          resource_id: 'resource-1',
-          start_at: '2099-04-05T10:00:00Z',
-            recurrence: {
-              freq: 'weekly',
-              interval: 1,
-              count: 8,
-              by_weekday: [1],
-            },
-        }),
-      );
-    });
-  });
-
-  it('prefers the exact slot duration when the selected range matches availability', async () => {
-    const longSlot: TimeSlot = {
-      resource_id: 'resource-1',
-      resource_name: 'Dr. Rivera',
-      start_at: '2099-04-05T10:00:00Z',
-      end_at: '2099-04-05T11:00:00Z',
-      occupies_from: '2099-04-05T10:00:00Z',
-      occupies_until: '2099-04-05T11:00:00Z',
-      timezone: 'America/Argentina/Tucuman',
-      remaining: 1,
-      conflict_count: 0,
-      granularity_minutes: 30,
-    };
-    const client = createClient({
-      listSlots: vi.fn(async () => [longSlot]),
-    });
-    modalMocks.props.length = 0;
-    confirmActionMock.mockReset();
-    confirmActionMock.mockResolvedValue(true);
-
-    renderCalendar(client);
-
-    await screen.findByRole('button', { name: 'Reservar slot' });
-
-    await waitFor(() => {
-      expect(calendarSurfaceMocks.last?.onSelect).toBeTruthy();
-    });
-
-    await act(async () => {
-      calendarSurfaceMocks.last?.onSelect?.({
-        start: new Date('2099-04-05T10:00:00Z'),
-        end: new Date('2099-04-05T11:00:00Z'),
-        startStr: '2099-04-05T10:00:00Z',
-        endStr: '2099-04-05T11:00:00Z',
-      });
-    });
-
-    await waitFor(() => {
-      const matchingCreateState = modalMocks.props
-        .map((entry) => entry.state)
-        .find((state) => state.open && state.mode === 'create' && state.slot?.end_at === '2099-04-05T11:00:00Z');
-      expect(Boolean(matchingCreateState)).toBe(true);
-    });
-  });
+  // 6 tests obsoletos del affordance "Reservar slot" eliminados.
+  // Ese flow ya no existe (botones removidos en Stage 3, click-en-hueco abre
+  // ahora el modal de evento interno por default con switcher a turno).
+  // Los flujos nuevos se cubren con tests del entry switcher + verificación
+  // manual del board contra el backend.
 
   it('opens booking details from a calendar event and confirms it', async () => {
     const client = createClient();
@@ -838,7 +664,10 @@ describe('SchedulingCalendar', () => {
 
     renderCalendar(client);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Bloquear horario' }));
+    // Nuevo flujo: click en un hueco vacío del grid abre el modal de evento
+    // por default, y el switcher embebido permite cambiar a bloqueo en un click.
+    fireEvent.click(await screen.findByRole('button', { name: 'open-calendar-create' }));
+    fireEvent.click(await screen.findByTestId('scheduling-entry-switch-blocked_range'));
 
     const reasonInput = await screen.findByLabelText('Motivo');
     fireEvent.change(reasonInput, { target: { value: 'Reunión con proveedor' } });

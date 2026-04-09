@@ -2,6 +2,10 @@ import type {
   AvailabilityRule,
   BlockedRange,
   BlockedRangePayload,
+  CreateInternalEventPayload,
+  InternalEvent,
+  ListInternalEventsQuery,
+  UpdateInternalEventPayload,
   Booking,
   Branch,
   CreateBookingPayload,
@@ -88,6 +92,29 @@ export function createSchedulingClient(request: SchedulingTransport) {
     },
     deleteBlockedRange(id: string) {
       return request<void>(`/v1/scheduling/blocked-ranges/${id}`, { method: 'DELETE' });
+    },
+    listInternalEvents(query: ListInternalEventsQuery = {}) {
+      return request<{ items: InternalEvent[] }>(
+        `/v1/scheduling/calendar-events${queryString({
+          branch_id: query.branch_id,
+          resource_id: query.resource_id,
+          from: query.from,
+          to: query.to,
+          status: query.status,
+        })}`,
+      ).then((response) => response.items ?? []);
+    },
+    getInternalEvent(id: string) {
+      return request<InternalEvent>(`/v1/scheduling/calendar-events/${id}`);
+    },
+    createInternalEvent(payload: CreateInternalEventPayload) {
+      return request<InternalEvent>('/v1/scheduling/calendar-events', { method: 'POST', body: payload });
+    },
+    updateInternalEvent(id: string, payload: UpdateInternalEventPayload) {
+      return request<InternalEvent>(`/v1/scheduling/calendar-events/${id}`, { method: 'PATCH', body: payload });
+    },
+    deleteInternalEvent(id: string) {
+      return request<void>(`/v1/scheduling/calendar-events/${id}`, { method: 'DELETE' });
     },
     listSlots(query: SlotQuery) {
       return request<{ items: TimeSlot[] }>(

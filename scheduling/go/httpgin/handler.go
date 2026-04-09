@@ -29,6 +29,11 @@ type usecasesPort interface {
 	CreateBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
 	UpdateBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
 	DeleteBlockedRange(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID) error
+	ListCalendarEvents(ctx context.Context, orgID uuid.UUID, filter schedulingdomain.ListCalendarEventsFilter) ([]schedulingdomain.CalendarEvent, error)
+	GetCalendarEvent(ctx context.Context, orgID, id uuid.UUID) (schedulingdomain.CalendarEvent, error)
+	CreateCalendarEvent(ctx context.Context, orgID uuid.UUID, actor string, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error)
+	UpdateCalendarEvent(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error)
+	DeleteCalendarEvent(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID) error
 	ListAvailableSlots(ctx context.Context, orgID uuid.UUID, query schedulingdomain.SlotQuery) ([]schedulingdomain.TimeSlot, error)
 	ListBookings(ctx context.Context, orgID uuid.UUID, filter schedulingdomain.ListBookingsFilter) ([]schedulingdomain.Booking, error)
 	GetBookingByID(ctx context.Context, orgID, bookingID uuid.UUID) (schedulingdomain.Booking, error)
@@ -90,6 +95,11 @@ func (h *Handler) RegisterRoutes(auth *gin.RouterGroup, require PermissionBinder
 	auth.POST("/scheduling/blocked-ranges", withPermission(require, "scheduling", "create"), h.CreateBlockedRange)
 	auth.PATCH("/scheduling/blocked-ranges/:id", withPermission(require, "scheduling", "update"), h.UpdateBlockedRange)
 	auth.DELETE("/scheduling/blocked-ranges/:id", withPermission(require, "scheduling", "delete"), h.DeleteBlockedRange)
+	auth.GET("/scheduling/calendar-events", withPermission(require, "scheduling", "read"), h.ListCalendarEvents)
+	auth.GET("/scheduling/calendar-events/:id", withPermission(require, "scheduling", "read"), h.GetCalendarEvent)
+	auth.POST("/scheduling/calendar-events", withPermission(require, "scheduling", "create"), h.CreateCalendarEvent)
+	auth.PATCH("/scheduling/calendar-events/:id", withPermission(require, "scheduling", "update"), h.UpdateCalendarEvent)
+	auth.DELETE("/scheduling/calendar-events/:id", withPermission(require, "scheduling", "delete"), h.DeleteCalendarEvent)
 	auth.GET("/scheduling/slots", withPermission(require, "scheduling", "read"), h.ListAvailableSlots)
 	auth.GET("/scheduling/bookings", withPermission(require, "scheduling", "read"), h.ListBookings)
 	auth.GET("/scheduling/bookings/:id", withPermission(require, "scheduling", "read"), h.GetBooking)
@@ -483,6 +493,174 @@ func (h *Handler) DeleteBlockedRange(c *gin.Context) {
 		return
 	}
 	if err := h.uc.DeleteBlockedRange(c.Request.Context(), orgID, authCtx.Actor, id); err != nil {
+		handlers.Respond(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ── calendar events (agenda interna) ────────────────────────────────────────
+
+func (h *Handler) ListCalendarEvents(c *gin.Context) {
+	orgID, ok := authOrg(c)
+	if !ok {
+		return
+	}
+	branchID, err := parseUUIDQuery(c.Query("branch_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid branch_id"})
+		return
+	}
+	resourceID, err := parseUUIDQuery(c.Query("resource_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource_id"})
+		return
+	}
+	from, err := parseRFC3339Query(c.Query("from"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid from"})
+		return
+	}
+	to, err := parseRFC3339Query(c.Query("to"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid to"})
+		return
+	}
+	filter := schedulingdomain.ListCalendarEventsFilter{
+		BranchID:   branchID,
+		ResourceID: resourceID,
+		From:       from,
+		To:         to,
+	}
+	if status := strings.TrimSpace(c.Query("status")); status != "" {
+		s := schedulingdomain.CalendarEventStatus(strings.ToLower(status))
+		filter.Status = &s
+	}
+	items, err := h.uc.ListCalendarEvents(c.Request.Context(), orgID, filter)
+	if err != nil {
+		handlers.Respond(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (h *Handler) GetCalendarEvent(c *gin.Context) {
+	orgID, _, id, ok := authOrgActorAndID(c)
+	if !ok {
+		return
+	}
+	out, err := h.uc.GetCalendarEvent(c.Request.Context(), orgID, id)
+	if err != nil {
+		handlers.Respond(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) CreateCalendarEvent(c *gin.Context) {
+	orgID, authCtx, ok := authOrgActor(c)
+	if !ok {
+		return
+	}
+	var req schedulingdto.CreateCalendarEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	branchID, err := parseUUIDPtr(req.BranchID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid branch_id"})
+		return
+	}
+	resourceID, err := parseUUIDPtr(req.ResourceID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource_id"})
+		return
+	}
+	startAt, err := parseRFC3339(req.StartAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_at"})
+		return
+	}
+	endAt, err := parseRFC3339(req.EndAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_at"})
+		return
+	}
+	out, err := h.uc.CreateCalendarEvent(c.Request.Context(), orgID, authCtx.Actor, schedulingdomain.CalendarEvent{
+		BranchID:    branchID,
+		ResourceID:  resourceID,
+		Title:       req.Title,
+		Description: req.Description,
+		StartAt:     startAt,
+		EndAt:       endAt,
+		AllDay:      req.AllDay,
+		Status:      schedulingdomain.CalendarEventStatus(req.Status),
+		Visibility:  schedulingdomain.CalendarEventVisibility(req.Visibility),
+		Metadata:    req.Metadata,
+	})
+	if err != nil {
+		handlers.Respond(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, out)
+}
+
+func (h *Handler) UpdateCalendarEvent(c *gin.Context) {
+	orgID, authCtx, id, ok := authOrgActorAndID(c)
+	if !ok {
+		return
+	}
+	var req schedulingdto.UpdateCalendarEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	branchID, err := parseUUIDPtr(req.BranchID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid branch_id"})
+		return
+	}
+	resourceID, err := parseUUIDPtr(req.ResourceID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid resource_id"})
+		return
+	}
+	startAt, err := parseRFC3339(req.StartAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_at"})
+		return
+	}
+	endAt, err := parseRFC3339(req.EndAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_at"})
+		return
+	}
+	out, err := h.uc.UpdateCalendarEvent(c.Request.Context(), orgID, authCtx.Actor, id, schedulingdomain.CalendarEvent{
+		BranchID:    branchID,
+		ResourceID:  resourceID,
+		Title:       req.Title,
+		Description: req.Description,
+		StartAt:     startAt,
+		EndAt:       endAt,
+		AllDay:      req.AllDay,
+		Status:      schedulingdomain.CalendarEventStatus(req.Status),
+		Visibility:  schedulingdomain.CalendarEventVisibility(req.Visibility),
+		Metadata:    req.Metadata,
+	})
+	if err != nil {
+		handlers.Respond(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) DeleteCalendarEvent(c *gin.Context) {
+	orgID, authCtx, id, ok := authOrgActorAndID(c)
+	if !ok {
+		return
+	}
+	if err := h.uc.DeleteCalendarEvent(c.Request.Context(), orgID, authCtx.Actor, id); err != nil {
 		handlers.Respond(c, err)
 		return
 	}
@@ -1331,6 +1509,19 @@ func parseRFC3339Ptr(raw *string) (*time.Time, error) {
 		return nil, nil
 	}
 	parsed, err := parseRFC3339(*raw)
+	if err != nil {
+		return nil, err
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
+}
+
+func parseRFC3339Query(raw string) (*time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parsed, err := parseRFC3339(trimmed)
 	if err != nil {
 		return nil, err
 	}

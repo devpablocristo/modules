@@ -6,6 +6,7 @@ import {
   buildOccupancyWindowFromServiceRange,
   calendarSelectionAllowedWithBuffers,
   schedulingIntervalsOverlap,
+  wallDateTimeInZoneToUtcIso,
 } from './schedulingCalendarLogic';
 
 const baseService: Service = {
@@ -154,5 +155,12 @@ describe('bookingBlocksCollisions', () => {
       updated_at: '',
     };
     expect(bookingBlocksCollisions(booking)).toBe(false);
+  });
+});
+
+describe('wallDateTimeInZoneToUtcIso', () => {
+  it('interpreta hora de pared en la zona del recurso (no la del navegador)', () => {
+    const iso = wallDateTimeInZoneToUtcIso('2026-04-09', '10:30', 'America/Argentina/Tucuman');
+    expect(iso).toMatch(/^2026-04-09T13:30:00\.000Z$/);
   });
 });

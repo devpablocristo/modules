@@ -1,0 +1,28 @@
+{
+  "name": "@devpablocristo/modules-admin-insights",
+  "version": "0.1.0",
+  "description": "Reusable admin surfaces for persisted business insight candidates.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --globals --passWithNoTests"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "react": "^18.3.1",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.4"
+  }
+}

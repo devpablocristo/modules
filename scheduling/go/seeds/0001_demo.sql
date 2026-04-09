@@ -45,17 +45,42 @@ BEGIN
     )
     ON CONFLICT (id) DO NOTHING;
 
+    -- Lunes a viernes (1..5): 09:00–13:00 y 14:00–18:00 (almuerzo cerrado).
+    -- Borra IDs del seed anterior (una ventana 09–18 / 09–17) para no duplicar al re-ejecutar.
+    DELETE FROM scheduling_availability_rules
+    WHERE org_id = v_org
+      AND branch_id = v_branch
+      AND id IN (
+          SELECT uuid_generate_v5(v_org, v_rule_base || 'branch/' || gs::text)
+          FROM generate_series(1, 5) AS gs
+          UNION ALL
+          SELECT uuid_generate_v5(v_org, v_rule_base || 'resource/' || gs::text)
+          FROM generate_series(1, 5) AS gs
+      );
+
     INSERT INTO scheduling_availability_rules (
         id, org_id, branch_id, kind, weekday, start_time, end_time, slot_granularity_minutes, active
     )
     SELECT
-        uuid_generate_v5(v_org, v_rule_base || 'branch/' || gs::text),
+        uuid_generate_v5(v_org, v_rule_base || 'branch/weekday/' || gs::text || '/am'),
         v_org,
         v_branch,
         'branch',
         gs,
-        '09:00',
-        '18:00',
+        TIME '09:00',
+        TIME '13:00',
+        30,
+        true
+    FROM generate_series(1, 5) AS gs
+    UNION ALL
+    SELECT
+        uuid_generate_v5(v_org, v_rule_base || 'branch/weekday/' || gs::text || '/pm'),
+        v_org,
+        v_branch,
+        'branch',
+        gs,
+        TIME '14:00',
+        TIME '18:00',
         30,
         true
     FROM generate_series(1, 5) AS gs
@@ -65,14 +90,27 @@ BEGIN
         id, org_id, branch_id, resource_id, kind, weekday, start_time, end_time, slot_granularity_minutes, active
     )
     SELECT
-        uuid_generate_v5(v_org, v_rule_base || 'resource/' || gs::text),
+        uuid_generate_v5(v_org, v_rule_base || 'resource/weekday/' || gs::text || '/am'),
         v_org,
         v_branch,
         v_resource,
         'resource',
         gs,
-        '09:00',
-        '17:00',
+        TIME '09:00',
+        TIME '13:00',
+        30,
+        true
+    FROM generate_series(1, 5) AS gs
+    UNION ALL
+    SELECT
+        uuid_generate_v5(v_org, v_rule_base || 'resource/weekday/' || gs::text || '/pm'),
+        v_org,
+        v_branch,
+        v_resource,
+        'resource',
+        gs,
+        TIME '14:00',
+        TIME '18:00',
         30,
         true
     FROM generate_series(1, 5) AS gs

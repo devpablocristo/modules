@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { confirmAction } from '@devpablocristo/core-browser';
 import { SchedulingDateInput } from './SchedulingDateInput';
-import type { BlockedRange, BlockedRangeKind, SchedulingCalendarCopy } from './types';
+import type { BlockedRange, BlockedRangeKind, SchedulingCalendarCopy, SchedulingEntryType } from './types';
+import { SchedulingEntryTypeSwitcher } from './SchedulingEntryTypeSwitcher';
 
 export type BlockedRangeModalState =
   | { open: false }
@@ -39,6 +40,8 @@ type Props = {
   onClose: () => void;
   onSave: (draft: BlockedRangeDraft) => Promise<void> | void;
   onDelete?: (id: string) => Promise<void> | void;
+  onSwitchType?: (type: SchedulingEntryType) => void;
+  bookingEnabled?: boolean;
 };
 
 const BLOCKED_KINDS: BlockedRangeKind[] = ['manual', 'holiday', 'maintenance', 'leave'];
@@ -80,7 +83,17 @@ function toTimeInputValue(value: Date): string {
   return `${hours}:${minutes}`;
 }
 
-export function BlockedRangeModal({ state, copy, locale, saving = false, onClose, onSave, onDelete }: Props) {
+export function BlockedRangeModal({
+  state,
+  copy,
+  locale,
+  saving = false,
+  onClose,
+  onSave,
+  onDelete,
+  onSwitchType,
+  bookingEnabled = true,
+}: Props) {
   const [draft, setDraft] = useState<BlockedRangeDraft>(() =>
     state.open ? state.initial : emptyBlockedRangeDraft(toDateInputValue(new Date())),
   );
@@ -146,6 +159,14 @@ export function BlockedRangeModal({ state, copy, locale, saving = false, onClose
         </div>
 
         <form className="app-modal__body modules-scheduling__modal-form" onSubmit={handleSubmit}>
+          {!isEdit && onSwitchType ? (
+            <SchedulingEntryTypeSwitcher
+              active="blocked_range"
+              copy={copy}
+              bookingEnabled={bookingEnabled}
+              onSwitch={onSwitchType}
+            />
+          ) : null}
           <div className="form-group">
             <label htmlFor="blocked-range-kind">{copy.blockedRangeKindLabel}</label>
             <select

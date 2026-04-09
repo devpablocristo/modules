@@ -267,10 +267,10 @@ func (r *Repository) ListApplicableAvailabilityRules(ctx context.Context, orgID,
 func (r *Repository) CreateAvailabilityRule(ctx context.Context, in schedulingdomain.AvailabilityRule) (schedulingdomain.AvailabilityRule, error) {
 	// Validate clock format up front; the actual storage is the canonical
 	// "HH:MM" string so postgres `time` columns accept it without conversion.
-	if _, err := parseClock(in.StartTime); err != nil {
+	if _, err := corescheduling.ParseClock(in.StartTime); err != nil {
 		return schedulingdomain.AvailabilityRule{}, err
 	}
-	if _, err := parseClock(in.EndTime); err != nil {
+	if _, err := corescheduling.ParseClock(in.EndTime); err != nil {
 		return schedulingdomain.AvailabilityRule{}, err
 	}
 	now := time.Now().UTC()
@@ -281,8 +281,8 @@ func (r *Repository) CreateAvailabilityRule(ctx context.Context, in schedulingdo
 		ResourceID:             in.ResourceID,
 		Kind:                   string(in.Kind),
 		Weekday:                in.Weekday,
-		StartTime:              normalizeClockString(in.StartTime),
-		EndTime:                normalizeClockString(in.EndTime),
+		StartTime:              in.StartTime,
+		EndTime:                in.EndTime,
 		SlotGranularityMinutes: in.SlotGranularityMinutes,
 		ValidFrom:              in.ValidFrom,
 		ValidUntil:             in.ValidUntil,
@@ -406,6 +406,139 @@ func (r *Repository) DeleteBlockedRange(ctx context.Context, orgID, id uuid.UUID
 	return nil
 }
 
+// ── calendar events ──────────────────────────────────────────────────────────
+
+func (r *Repository) CreateCalendarEvent(ctx context.Context, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error) {
+	now := time.Now().UTC()
+	row := schedulingmodels.CalendarEventModel{
+		ID:          in.ID,
+		OrgID:       in.OrgID,
+		BranchID:    in.BranchID,
+		ResourceID:  in.ResourceID,
+		Title:       strings.TrimSpace(in.Title),
+		Description: strings.TrimSpace(in.Description),
+		StartAt:     in.StartAt.UTC(),
+		EndAt:       in.EndAt.UTC(),
+		AllDay:      in.AllDay,
+		Status:      string(in.Status),
+		Visibility:  string(in.Visibility),
+		CreatedBy:   strings.TrimSpace(in.CreatedBy),
+		Metadata:    mustJSON(in.Metadata),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return schedulingdomain.CalendarEvent{}, err
+	}
+	return toDomainCalendarEvent(row), nil
+}
+
+func (r *Repository) GetCalendarEvent(ctx context.Context, orgID, id uuid.UUID) (schedulingdomain.CalendarEvent, error) {
+	var row schedulingmodels.CalendarEventModel
+	if err := r.db.WithContext(ctx).
+		Where("org_id = ? AND id = ?", orgID, id).
+		Take(&row).Error; err != nil {
+		return schedulingdomain.CalendarEvent{}, err
+	}
+	return toDomainCalendarEvent(row), nil
+}
+
+func (r *Repository) ListCalendarEvents(ctx context.Context, orgID uuid.UUID, filter schedulingdomain.ListCalendarEventsFilter) ([]schedulingdomain.CalendarEvent, error) {
+	q := r.db.WithContext(ctx).Model(&schedulingmodels.CalendarEventModel{}).Where("org_id = ?", orgID)
+	if filter.BranchID != nil && *filter.BranchID != uuid.Nil {
+		q = q.Where("branch_id = ?", *filter.BranchID)
+	}
+	if filter.ResourceID != nil && *filter.ResourceID != uuid.Nil {
+		q = q.Where("resource_id = ?", *filter.ResourceID)
+	}
+	if filter.From != nil && !filter.From.IsZero() {
+		q = q.Where("end_at > ?", filter.From.UTC())
+	}
+	if filter.To != nil && !filter.To.IsZero() {
+		q = q.Where("start_at < ?", filter.To.UTC())
+	}
+	if filter.Status != nil && *filter.Status != "" {
+		q = q.Where("status = ?", string(*filter.Status))
+	}
+	var rows []schedulingmodels.CalendarEventModel
+	if err := q.Order("start_at ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]schedulingdomain.CalendarEvent, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomainCalendarEvent(row))
+	}
+	return out, nil
+}
+
+// ListCalendarEventsOccupyingResource devuelve los eventos no cancelados que
+// se solapan con [from, to] sobre un recurso concreto. Lo usa el slot picker
+// para restar tiempo ocupado por agenda interna.
+func (r *Repository) ListCalendarEventsOccupyingResource(ctx context.Context, orgID, branchID, resourceID uuid.UUID, from, to time.Time) ([]schedulingdomain.CalendarEvent, error) {
+	q := r.db.WithContext(ctx).
+		Model(&schedulingmodels.CalendarEventModel{}).
+		Where("org_id = ? AND resource_id = ? AND status <> ?", orgID, resourceID, string(schedulingdomain.CalendarEventStatusCancelled)).
+		Where("start_at < ? AND end_at > ?", to.UTC(), from.UTC())
+	if branchID != uuid.Nil {
+		q = q.Where("branch_id IS NULL OR branch_id = ?", branchID)
+	}
+	var rows []schedulingmodels.CalendarEventModel
+	if err := q.Order("start_at ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]schedulingdomain.CalendarEvent, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomainCalendarEvent(row))
+	}
+	return out, nil
+}
+
+func (r *Repository) UpdateCalendarEvent(ctx context.Context, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error) {
+	updates := map[string]any{
+		"branch_id":   in.BranchID,
+		"resource_id": in.ResourceID,
+		"title":       strings.TrimSpace(in.Title),
+		"description": strings.TrimSpace(in.Description),
+		"start_at":    in.StartAt.UTC(),
+		"end_at":      in.EndAt.UTC(),
+		"all_day":     in.AllDay,
+		"status":      string(in.Status),
+		"visibility":  string(in.Visibility),
+		"metadata":    mustJSON(in.Metadata),
+		"updated_at":  time.Now().UTC(),
+	}
+	res := r.db.WithContext(ctx).
+		Model(&schedulingmodels.CalendarEventModel{}).
+		Where("org_id = ? AND id = ?", in.OrgID, in.ID).
+		Updates(updates)
+	if res.Error != nil {
+		return schedulingdomain.CalendarEvent{}, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return schedulingdomain.CalendarEvent{}, gorm.ErrRecordNotFound
+	}
+	var row schedulingmodels.CalendarEventModel
+	if err := r.db.WithContext(ctx).
+		Where("org_id = ? AND id = ?", in.OrgID, in.ID).
+		Take(&row).Error; err != nil {
+		return schedulingdomain.CalendarEvent{}, err
+	}
+	return toDomainCalendarEvent(row), nil
+}
+
+func (r *Repository) DeleteCalendarEvent(ctx context.Context, orgID, id uuid.UUID) error {
+	res := r.db.WithContext(ctx).
+		Where("org_id = ? AND id = ?", orgID, id).
+		Delete(&schedulingmodels.CalendarEventModel{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *Repository) CountBookingOverlaps(ctx context.Context, orgID, resourceID uuid.UUID, occupiesFrom, occupiesUntil time.Time, excludeBookingID *uuid.UUID) (int64, error) {
 	q := r.db.WithContext(ctx).
 		Model(&schedulingmodels.BookingModel{}).
@@ -476,7 +609,7 @@ func (r *Repository) createBookingTx(tx *gorm.DB, in schedulingdomain.Booking) (
 		CustomerEmail:  strings.TrimSpace(in.CustomerEmail),
 		Status:         string(in.Status),
 		Source:         string(in.Source),
-		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+		IdempotencyKey: nullableTrimmed(in.IdempotencyKey),
 		StartAt:        in.StartAt.UTC(),
 		EndAt:          in.EndAt.UTC(),
 		OccupiesFrom:   in.OccupiesFrom.UTC(),
@@ -1325,8 +1458,8 @@ func toDomainAvailabilityRule(row schedulingmodels.AvailabilityRuleModel) schedu
 		ResourceID:             row.ResourceID,
 		Kind:                   schedulingdomain.AvailabilityRuleKind(row.Kind),
 		Weekday:                row.Weekday,
-		StartTime:              normalizeClockString(row.StartTime),
-		EndTime:                normalizeClockString(row.EndTime),
+		StartTime:              row.StartTime,
+		EndTime:                row.EndTime,
 		SlotGranularityMinutes: row.SlotGranularityMinutes,
 		ValidFrom:              row.ValidFrom,
 		ValidUntil:             row.ValidUntil,
@@ -1354,6 +1487,26 @@ func toDomainBlockedRange(row schedulingmodels.BlockedRangeModel) schedulingdoma
 	}
 }
 
+func toDomainCalendarEvent(row schedulingmodels.CalendarEventModel) schedulingdomain.CalendarEvent {
+	return schedulingdomain.CalendarEvent{
+		ID:          row.ID,
+		OrgID:       row.OrgID,
+		BranchID:    row.BranchID,
+		ResourceID:  row.ResourceID,
+		Title:       row.Title,
+		Description: row.Description,
+		StartAt:     row.StartAt,
+		EndAt:       row.EndAt,
+		AllDay:      row.AllDay,
+		Status:      schedulingdomain.CalendarEventStatus(row.Status),
+		Visibility:  schedulingdomain.CalendarEventVisibility(row.Visibility),
+		CreatedBy:   row.CreatedBy,
+		Metadata:    decodeJSON(row.Metadata),
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
+	}
+}
+
 func toDomainBooking(row schedulingmodels.BookingModel) schedulingdomain.Booking {
 	return schedulingdomain.Booking{
 		ID:             row.ID,
@@ -1368,7 +1521,7 @@ func toDomainBooking(row schedulingmodels.BookingModel) schedulingdomain.Booking
 		CustomerEmail:  row.CustomerEmail,
 		Status:         schedulingdomain.BookingStatus(row.Status),
 		Source:         schedulingdomain.BookingSource(row.Source),
-		IdempotencyKey: row.IdempotencyKey,
+		IdempotencyKey: derefString(row.IdempotencyKey),
 		StartAt:        row.StartAt,
 		EndAt:          row.EndAt,
 		OccupiesFrom:   row.OccupiesFrom,
@@ -1498,23 +1651,22 @@ func decodeJSON(v []byte) map[string]any {
 	return out
 }
 
-func parseClock(raw string) (time.Time, error) {
-	return corescheduling.ParseClock(raw)
+// nullableTrimmed devuelve nil si el string queda vacío luego de TrimSpace.
+// Se usa para columnas con índices únicos parciales `WHERE col IS NOT NULL`,
+// donde `''` no se considera NULL y rompería la unicidad entre filas legítimas.
+func nullableTrimmed(raw string) *string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
-// normalizeClockString reduces "HH:MM:SS" or "HH:MM:SS.000" wire-format values
-// from postgres `time` columns to the canonical "HH:MM" string used by the
-// domain layer. Empty input passes through unchanged.
-func normalizeClockString(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+func derefString(p *string) string {
+	if p == nil {
 		return ""
 	}
-	t, err := corescheduling.ParseClock(raw)
-	if err != nil {
-		return raw
-	}
-	return t.Format("15:04")
+	return *p
 }
 
 func dedupeUUIDs(values []uuid.UUID) []uuid.UUID {

@@ -109,6 +109,29 @@ type BlockedRangeModel struct {
 
 func (BlockedRangeModel) TableName() string { return "scheduling_blocked_ranges" }
 
+// CalendarEventModel persiste eventos internos de agenda. No se mezcla con
+// BookingModel: tiene su propia tabla, su propio ciclo y nunca se expone en la
+// surface pública.
+type CalendarEventModel struct {
+	ID          uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	OrgID       uuid.UUID  `gorm:"type:uuid;index;not null"`
+	BranchID    *uuid.UUID `gorm:"type:uuid;index"`
+	ResourceID  *uuid.UUID `gorm:"type:uuid;index"`
+	Title       string     `gorm:"not null"`
+	Description string
+	StartAt     time.Time
+	EndAt       time.Time
+	AllDay      bool
+	Status      string `gorm:"not null"`
+	Visibility  string `gorm:"not null"`
+	CreatedBy   string
+	Metadata    []byte `gorm:"type:jsonb"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func (CalendarEventModel) TableName() string { return "scheduling_calendar_events" }
+
 type BookingModel struct {
 	ID             uuid.UUID  `gorm:"type:uuid;primaryKey"`
 	OrgID          uuid.UUID  `gorm:"type:uuid;index;not null"`
@@ -122,7 +145,9 @@ type BookingModel struct {
 	CustomerEmail  string     `gorm:"column:customer_email"`
 	Status         string     `gorm:"not null"`
 	Source         string     `gorm:"not null"`
-	IdempotencyKey string     `gorm:"column:idempotency_key"`
+	// Puntero para que el cero (`""`) se persista como NULL y no choque con el
+	// índice único parcial `WHERE idempotency_key IS NOT NULL`.
+	IdempotencyKey *string    `gorm:"column:idempotency_key"`
 	StartAt        time.Time
 	EndAt          time.Time
 	OccupiesFrom   time.Time

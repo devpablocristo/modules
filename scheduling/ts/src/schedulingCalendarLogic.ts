@@ -44,7 +44,93 @@ function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
 
-export function toDateInputValue(value: string): string {
+function readFormatterPart(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
+  return parts.find((p) => p.type === type)?.value ?? '';
+}
+
+/** Fecha calendario (YYYY-MM-DD) del instante UTC en la zona IANA indicada. */
+export function utcInstantToWallDate(isoUtc: string, timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date(isoUtc));
+  const y = readFormatterPart(parts, 'year');
+  const mo = readFormatterPart(parts, 'month');
+  const d = readFormatterPart(parts, 'day');
+  return `${y}-${mo}-${d}`;
+}
+
+/** Hora HH:mm del instante UTC en la zona IANA indicada (24 h). */
+export function utcInstantToWallClock(isoUtc: string, timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = formatter.formatToParts(new Date(isoUtc));
+  const h = readFormatterPart(parts, 'hour');
+  const mi = readFormatterPart(parts, 'minute');
+  return `${h.padStart(2, '0')}:${mi.padStart(2, '0')}`;
+}
+
+/**
+ * Interpreta fecha + hora como reloj de pared en `timeZone` (sucursal/recurso) y devuelve ISO UTC.
+ * Evita `new Date("YYYY-MM-DDTHH:mm:ss")`, que usa la zona del navegador y rompe validación en el servidor.
+ */
+export function wallDateTimeInZoneToUtcIso(ymd: string, clockHm: string, timeZone: string): string {
+  const clock = normalizeClock(clockHm);
+  const [y, mo, d] = ymd.split('-').map((piece) => Number(piece));
+  const [H, Mi] = clock.split(':').map((piece) => Number(piece));
+  if (
+    !Number.isFinite(y) ||
+    !Number.isFinite(mo) ||
+    !Number.isFinite(d) ||
+    !Number.isFinite(H) ||
+    !Number.isFinite(Mi)
+  ) {
+    return new Date(`${ymd}T${clock}:00`).toISOString();
+  }
+
+  const center = Date.UTC(y, mo - 1, d, 12, 0, 0);
+  const windowMs = 52 * 60 * 60 * 1000;
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+
+  for (let t = center - windowMs; t <= center + windowMs; t += 60_000) {
+    const parts = formatter.formatToParts(new Date(t));
+    const py = Number(readFormatterPart(parts, 'year'));
+    const pm = Number(readFormatterPart(parts, 'month'));
+    const pd = Number(readFormatterPart(parts, 'day'));
+    const ph = Number(readFormatterPart(parts, 'hour'));
+    const pmi = Number(readFormatterPart(parts, 'minute'));
+    if (py === y && pm === mo && pd === d && ph === H && pmi === Mi) {
+      return new Date(t).toISOString();
+    }
+  }
+
+  return new Date(`${ymd}T${clock}:00`).toISOString();
+}
+
+export function toDateInputValue(value: string, timeZone?: string | null): string {
+  const tz = timeZone?.trim();
+  if (tz) {
+    if (Number.isNaN(new Date(value).getTime())) {
+      return value.slice(0, 10);
+    }
+    return utcInstantToWallDate(value, tz);
+  }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return value.slice(0, 10);
@@ -52,7 +138,14 @@ export function toDateInputValue(value: string): string {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
 }
 
-export function toTimeInputValue(value: string): string {
+export function toTimeInputValue(value: string, timeZone?: string | null): string {
+  const tz = timeZone?.trim();
+  if (tz) {
+    if (Number.isNaN(new Date(value).getTime())) {
+      return value;
+    }
+    return utcInstantToWallClock(value, tz);
+  }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return value;
@@ -60,11 +153,28 @@ export function toTimeInputValue(value: string): string {
   return `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 }
 
-export function buildCreateEditorFromSlot(slot: TimeSlot): SchedulingBookingCreateEditor {
+/** Zona IANA efectiva: recurso, si no sucursal (evita "" y undefined que caían en UTC/local mal). */
+export function effectiveSchedulingTimeZone(
+  resource: Resource | null | undefined,
+  branch: Branch | null,
+): string {
+  const r = resource?.timezone?.trim();
+  if (r) {
+    return r;
+  }
+  const b = branch?.timezone?.trim();
+  if (b) {
+    return b;
+  }
+  return 'UTC';
+}
+
+export function buildCreateEditorFromSlot(slot: TimeSlot, branchTimezone?: string | null): SchedulingBookingCreateEditor {
+  const tz = slot.timezone?.trim() || branchTimezone?.trim() || null;
   return {
-    date: toDateInputValue(slot.start_at),
-    startTime: toTimeInputValue(slot.start_at),
-    endTime: toTimeInputValue(slot.end_at),
+    date: toDateInputValue(slot.start_at, tz),
+    startTime: toTimeInputValue(slot.start_at, tz),
+    endTime: toTimeInputValue(slot.end_at, tz),
     resourceId: slot.resource_id,
   };
 }
@@ -267,7 +377,8 @@ export function buildSchedulingCreateModalStateFromSlot(
   selectedService: Service | null,
   slots: readonly TimeSlot[],
   resources: readonly Resource[],
-  resourceName?: string,
+  resourceName: string | undefined,
+  branchTimezone: string | null | undefined,
 ): SchedulingBookingModalState {
   return {
     open: true,
@@ -275,7 +386,7 @@ export function buildSchedulingCreateModalStateFromSlot(
     slot,
     slotOptions: buildCreateSlotOptions(slot, slots),
     resourceOptions: buildCreateResourceOptions(resources, slot),
-    editor: buildCreateEditorFromSlot(slot),
+    editor: buildCreateEditorFromSlot(slot, branchTimezone),
     validationMessage: null,
     service: selectedService ?? undefined,
     resourceName: resourceName ?? slot.resource_name,
@@ -315,6 +426,7 @@ export function buildSchedulingCreateModalStateFromStart({
       slots,
       filteredResources,
       matchingSlot.resource_name,
+      selectedBranch?.timezone,
     );
   }
 
@@ -336,7 +448,7 @@ export function buildSchedulingCreateModalStateFromStart({
       end_at: provisionalEnd.toISOString(),
       occupies_from: start.toISOString(),
       occupies_until: provisionalEnd.toISOString(),
-      timezone: fallbackResource.timezone ?? selectedBranch?.timezone ?? 'UTC',
+      timezone: effectiveSchedulingTimeZone(fallbackResource, selectedBranch),
       remaining: 1,
       conflict_count: 0,
       granularity_minutes: selectedService.slot_granularity_minutes,
@@ -345,6 +457,7 @@ export function buildSchedulingCreateModalStateFromStart({
     slots,
     filteredResources,
     fallbackResource.name,
+    selectedBranch?.timezone,
   );
 }
 
@@ -358,15 +471,14 @@ export function buildSyntheticTimeSlotFromEditor(
   if (!resource) {
     return null;
   }
-  const startWall = `${editor.date}T${normalizeClock(editor.startTime)}:00`;
-  const endWall = `${editor.date}T${normalizeClock(editor.endTime)}:00`;
-  const startMs = new Date(startWall).getTime();
-  const endMs = new Date(endWall).getTime();
+  const timeZone = effectiveSchedulingTimeZone(resource, branch);
+  const startAt = wallDateTimeInZoneToUtcIso(editor.date, normalizeClock(editor.startTime), timeZone);
+  const endAt = wallDateTimeInZoneToUtcIso(editor.date, normalizeClock(editor.endTime), timeZone);
+  const startMs = Date.parse(startAt);
+  const endMs = Date.parse(endAt);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return null;
   }
-  const startAt = new Date(startMs).toISOString();
-  const endAt = new Date(endMs).toISOString();
   return {
     resource_id: resource.id,
     resource_name: resource.name,
@@ -374,7 +486,7 @@ export function buildSyntheticTimeSlotFromEditor(
     end_at: endAt,
     occupies_from: startAt,
     occupies_until: endAt,
-    timezone: resource.timezone ?? branch?.timezone ?? 'UTC',
+    timezone: timeZone,
     remaining: 1,
     conflict_count: 0,
     granularity_minutes: service.slot_granularity_minutes,

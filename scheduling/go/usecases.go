@@ -48,6 +48,12 @@ type RepositoryPort interface {
 	CreateBlockedRange(ctx context.Context, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
 	UpdateBlockedRange(ctx context.Context, in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRange, error)
 	DeleteBlockedRange(ctx context.Context, orgID, id uuid.UUID) error
+	CreateCalendarEvent(ctx context.Context, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error)
+	GetCalendarEvent(ctx context.Context, orgID, id uuid.UUID) (schedulingdomain.CalendarEvent, error)
+	ListCalendarEvents(ctx context.Context, orgID uuid.UUID, filter schedulingdomain.ListCalendarEventsFilter) ([]schedulingdomain.CalendarEvent, error)
+	ListCalendarEventsOccupyingResource(ctx context.Context, orgID, branchID, resourceID uuid.UUID, from, to time.Time) ([]schedulingdomain.CalendarEvent, error)
+	UpdateCalendarEvent(ctx context.Context, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error)
+	DeleteCalendarEvent(ctx context.Context, orgID, id uuid.UUID) error
 	CountBookingOverlaps(ctx context.Context, orgID, resourceID uuid.UUID, occupiesFrom, occupiesUntil time.Time, excludeBookingID *uuid.UUID) (int64, error)
 	CreateBookings(ctx context.Context, in []schedulingdomain.Booking) ([]schedulingdomain.Booking, error)
 	CreateBooking(ctx context.Context, in schedulingdomain.Booking) (schedulingdomain.Booking, error)
@@ -323,6 +329,113 @@ func (u *Usecases) DeleteBlockedRange(ctx context.Context, orgID uuid.UUID, acto
 	}
 	u.logAudit(ctx, orgID, actor, "scheduling.blocked_range.deleted", "scheduling_blocked_range", id.String(), nil)
 	return nil
+}
+
+// ── calendar events (agenda interna) ────────────────────────────────────────
+
+func (u *Usecases) ListCalendarEvents(ctx context.Context, orgID uuid.UUID, filter schedulingdomain.ListCalendarEventsFilter) ([]schedulingdomain.CalendarEvent, error) {
+	return u.repo.ListCalendarEvents(ctx, orgID, filter)
+}
+
+func (u *Usecases) GetCalendarEvent(ctx context.Context, orgID, id uuid.UUID) (schedulingdomain.CalendarEvent, error) {
+	if id == uuid.Nil {
+		return schedulingdomain.CalendarEvent{}, domainerr.Validation("id is required")
+	}
+	out, err := u.repo.GetCalendarEvent(ctx, orgID, id)
+	if err != nil {
+		return schedulingdomain.CalendarEvent{}, mapRepoError(err, "calendar_event", id)
+	}
+	return out, nil
+}
+
+func (u *Usecases) CreateCalendarEvent(ctx context.Context, orgID uuid.UUID, actor string, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error) {
+	status, visibility, err := validateCalendarEventFields(in)
+	if err != nil {
+		return schedulingdomain.CalendarEvent{}, err
+	}
+	in.ID = ensureUUID(in.ID)
+	in.OrgID = orgID
+	in.Status = status
+	in.Visibility = visibility
+	in.CreatedBy = actor
+	out, err := u.repo.CreateCalendarEvent(ctx, in)
+	if err != nil {
+		return schedulingdomain.CalendarEvent{}, mapRepoError(err, "calendar_event", in.ID)
+	}
+	u.logAudit(ctx, orgID, actor, "scheduling.calendar_event.created", "scheduling_calendar_event", out.ID.String(), map[string]any{"title": out.Title, "resource_id": uuidPtrString(out.ResourceID)})
+	return out, nil
+}
+
+func (u *Usecases) UpdateCalendarEvent(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID, in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEvent, error) {
+	if id == uuid.Nil {
+		return schedulingdomain.CalendarEvent{}, domainerr.Validation("id is required")
+	}
+	status, visibility, err := validateCalendarEventFields(in)
+	if err != nil {
+		return schedulingdomain.CalendarEvent{}, err
+	}
+	in.ID = id
+	in.OrgID = orgID
+	in.Status = status
+	in.Visibility = visibility
+	out, err := u.repo.UpdateCalendarEvent(ctx, in)
+	if err != nil {
+		return schedulingdomain.CalendarEvent{}, mapRepoError(err, "calendar_event", id)
+	}
+	u.logAudit(ctx, orgID, actor, "scheduling.calendar_event.updated", "scheduling_calendar_event", out.ID.String(), map[string]any{"title": out.Title, "status": string(out.Status)})
+	return out, nil
+}
+
+func (u *Usecases) DeleteCalendarEvent(ctx context.Context, orgID uuid.UUID, actor string, id uuid.UUID) error {
+	if id == uuid.Nil {
+		return domainerr.Validation("id is required")
+	}
+	if err := u.repo.DeleteCalendarEvent(ctx, orgID, id); err != nil {
+		return mapRepoError(err, "calendar_event", id)
+	}
+	u.logAudit(ctx, orgID, actor, "scheduling.calendar_event.deleted", "scheduling_calendar_event", id.String(), nil)
+	return nil
+}
+
+func validateCalendarEventFields(in schedulingdomain.CalendarEvent) (schedulingdomain.CalendarEventStatus, schedulingdomain.CalendarEventVisibility, error) {
+	if strings.TrimSpace(in.Title) == "" {
+		return "", "", domainerr.Validation("title is required")
+	}
+	if in.StartAt.IsZero() || in.EndAt.IsZero() {
+		return "", "", domainerr.Validation("start_at and end_at are required")
+	}
+	if !in.EndAt.After(in.StartAt) {
+		return "", "", domainerr.Validation("end_at must be after start_at")
+	}
+	status := schedulingdomain.CalendarEventStatus(strings.TrimSpace(strings.ToLower(string(in.Status))))
+	if status == "" {
+		status = schedulingdomain.CalendarEventStatusScheduled
+	}
+	switch status {
+	case schedulingdomain.CalendarEventStatusScheduled,
+		schedulingdomain.CalendarEventStatusDone,
+		schedulingdomain.CalendarEventStatusCancelled:
+	default:
+		return "", "", domainerr.Validation("invalid status")
+	}
+	visibility := schedulingdomain.CalendarEventVisibility(strings.TrimSpace(strings.ToLower(string(in.Visibility))))
+	if visibility == "" {
+		visibility = schedulingdomain.CalendarEventVisibilityTeam
+	}
+	switch visibility {
+	case schedulingdomain.CalendarEventVisibilityTeam,
+		schedulingdomain.CalendarEventVisibilityPrivate:
+	default:
+		return "", "", domainerr.Validation("invalid visibility")
+	}
+	return status, visibility, nil
+}
+
+func uuidPtrString(p *uuid.UUID) string {
+	if p == nil {
+		return ""
+	}
+	return p.String()
 }
 
 func validateBlockedRangeFields(in schedulingdomain.BlockedRange) (schedulingdomain.BlockedRangeKind, error) {
@@ -1505,6 +1618,17 @@ func (u *Usecases) listAvailableSlots(ctx context.Context, orgID uuid.UUID, quer
 		blocked, err := u.repo.ListBlockedRangesBetween(ctx, orgID, branch.ID, &resource.ID, windowStart.UTC(), windowEnd.UTC())
 		if err != nil {
 			return nil, err
+		}
+		// Los eventos de agenda interna con resource_id ocupan ese recurso a efectos del
+		// slot picker: el cliente externo nunca ve un hueco donde el dueño ya agendó una
+		// reunión, aunque el evento mismo no se exponga en la surface pública. Los eventos
+		// sin resource_id (tiempo personal del owner) no entran acá y no afectan slots.
+		events, err := u.repo.ListCalendarEventsOccupyingResource(ctx, orgID, branch.ID, resource.ID, windowStart.UTC(), windowEnd.UTC())
+		if err != nil {
+			return nil, err
+		}
+		for _, ev := range events {
+			blocked = append(blocked, schedulingdomain.BlockedRange{StartAt: ev.StartAt, EndAt: ev.EndAt})
 		}
 		candidates := generateSlotsForResource(resourceLoc, branch, resource, service, dayLocal.In(resourceLoc), rules, blocked)
 		for _, slot := range candidates {

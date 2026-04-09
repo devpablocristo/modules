@@ -193,6 +193,60 @@ type AvailabilityRule struct {
 	UpdatedAt              time.Time            `json:"updated_at"`
 }
 
+// CalendarEventStatus modela el ciclo simple de un evento interno de agenda.
+// No se confunde con BookingStatus: los eventos no pasan por hold ni por
+// in_service ni por no_show; sólo existen, se completan o se cancelan.
+type CalendarEventStatus string
+
+const (
+	CalendarEventStatusScheduled CalendarEventStatus = "scheduled"
+	CalendarEventStatusDone      CalendarEventStatus = "done"
+	CalendarEventStatusCancelled CalendarEventStatus = "cancelled"
+)
+
+// CalendarEventVisibility decide quién puede ver el evento dentro de la org.
+// `team` = todos los usuarios internos de la org. `private` = sólo el creador.
+// La surface pública /v1/public/... NUNCA expone estos eventos.
+type CalendarEventVisibility string
+
+const (
+	CalendarEventVisibilityTeam    CalendarEventVisibility = "team"
+	CalendarEventVisibilityPrivate CalendarEventVisibility = "private"
+)
+
+// CalendarEvent es una entrada de agenda interna (reunión, capacitación,
+// almuerzo, recordatorio del owner). Si tiene ResourceID, ocupa ese recurso y
+// resta del slot picker externo (turnos clientes). Sin ResourceID, es tiempo
+// personal y no afecta la disponibilidad pública.
+type CalendarEvent struct {
+	ID          uuid.UUID               `json:"id"`
+	OrgID       uuid.UUID               `json:"org_id"`
+	BranchID    *uuid.UUID              `json:"branch_id,omitempty"`
+	ResourceID  *uuid.UUID              `json:"resource_id,omitempty"`
+	Title       string                  `json:"title"`
+	Description string                  `json:"description,omitempty"`
+	StartAt     time.Time               `json:"start_at"`
+	EndAt       time.Time               `json:"end_at"`
+	AllDay      bool                    `json:"all_day"`
+	Status      CalendarEventStatus     `json:"status"`
+	Visibility  CalendarEventVisibility `json:"visibility"`
+	CreatedBy   string                  `json:"created_by,omitempty"`
+	Metadata    map[string]any          `json:"metadata,omitempty"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+}
+
+// ListCalendarEventsFilter restringe el listado por rango temporal o recurso.
+// Todos los campos son opcionales: si vienen vacíos, se devuelven los eventos
+// de la org sin filtrar.
+type ListCalendarEventsFilter struct {
+	BranchID   *uuid.UUID
+	ResourceID *uuid.UUID
+	From       *time.Time
+	To         *time.Time
+	Status     *CalendarEventStatus
+}
+
 type BlockedRange struct {
 	ID         uuid.UUID        `json:"id"`
 	OrgID      uuid.UUID        `json:"org_id"`

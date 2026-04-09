@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { confirmAction } from '@devpablocristo/core-browser';
 import { formatSchedulingDateTime, formatSchedulingWeekdayNarrow } from './locale';
 import { SchedulingDateInput } from './SchedulingDateInput';
-import type { Booking, SchedulingCalendarCopy, Service, TimeSlot } from './types';
+import type { Booking, SchedulingCalendarCopy, SchedulingEntryType, Service, TimeSlot } from './types';
+import { SchedulingEntryTypeSwitcher } from './SchedulingEntryTypeSwitcher';
 
 export type SchedulingBookingRecurrenceDraft = {
   mode: 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
@@ -76,6 +77,7 @@ type Props = {
   onEditorChange?: (editor: Partial<SchedulingBookingCreateEditor>) => void;
   onCreate: (draft: SchedulingBookingDraft) => Promise<void> | void;
   onAction: (action: SchedulingBookingAction, booking: Booking) => Promise<void> | void;
+  onSwitchType?: (type: SchedulingEntryType) => void;
 };
 
 function actionButtons(status: Booking['status']): SchedulingBookingAction[] {
@@ -131,6 +133,7 @@ export function SchedulingBookingModal({
   onEditorChange,
   onCreate,
   onAction,
+  onSwitchType,
 }: Props) {
   const [draft, setDraft] = useState<SchedulingBookingDraft>({
     title: '',
@@ -471,6 +474,14 @@ export function SchedulingBookingModal({
 
         {state.mode === 'create' ? (
           <form className="app-modal__body modules-scheduling__modal-form" onSubmit={handleCreate}>
+            {onSwitchType ? (
+              <SchedulingEntryTypeSwitcher
+                active="booking"
+                copy={copy}
+                bookingEnabled
+                onSwitch={onSwitchType}
+              />
+            ) : null}
             {renderCreateSummary()}
 
             <div className="app-modal__footer">

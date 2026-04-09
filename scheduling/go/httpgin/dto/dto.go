@@ -74,6 +74,32 @@ type UpdateBlockedRangeRequest struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
+type CreateCalendarEventRequest struct {
+	BranchID    *string        `json:"branch_id,omitempty"`
+	ResourceID  *string        `json:"resource_id,omitempty"`
+	Title       string         `json:"title"`
+	Description string         `json:"description,omitempty"`
+	StartAt     string         `json:"start_at"`
+	EndAt       string         `json:"end_at"`
+	AllDay      bool           `json:"all_day,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	Visibility  string         `json:"visibility,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+type UpdateCalendarEventRequest struct {
+	BranchID    *string        `json:"branch_id,omitempty"`
+	ResourceID  *string        `json:"resource_id,omitempty"`
+	Title       string         `json:"title"`
+	Description string         `json:"description,omitempty"`
+	StartAt     string         `json:"start_at"`
+	EndAt       string         `json:"end_at"`
+	AllDay      bool           `json:"all_day,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	Visibility  string         `json:"visibility,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
 type CreateBookingRequest struct {
 	BranchID       string                    `json:"branch_id"`
 	ServiceID      string                    `json:"service_id"`

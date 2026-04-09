@@ -72,6 +72,7 @@ vi.mock('@fullcalendar/daygrid', () => ({ default: {} }));
 vi.mock('@fullcalendar/timegrid', () => ({ default: {} }));
 vi.mock('@fullcalendar/interaction', () => ({ default: {} }));
 vi.mock('@fullcalendar/list', () => ({ default: {} }));
+vi.mock('@fullcalendar/luxon', () => ({ default: {} }));
 
 describe('CalendarSurface', () => {
   it('renders the loading fallback when the calendar is not ready', () => {
@@ -208,5 +209,24 @@ describe('CalendarSurface', () => {
     expect(fullCalendarProps.last?.eventAllow).toBe(onEventAllow);
     expect(fullCalendarProps.last?.eventConstraint).toBe('businessHours');
     expect(fullCalendarProps.last?.eventContent).toBe(onEventContent);
+  });
+
+  it('activa zona IANA y plugin Luxon cuando timeZone está definido', () => {
+    render(
+      <CalendarSurface
+        calendarRef={{ current: null }}
+        view="timeGridWeek"
+        loaded
+        onToday={vi.fn()}
+        onPrev={vi.fn()}
+        onNext={vi.fn()}
+        onViewChange={vi.fn()}
+        timeZone="America/Argentina/Buenos_Aires"
+      />,
+    );
+    const props = fullCalendarProps.last as { timeZone?: string; plugins?: unknown[] } | null;
+    expect(props?.timeZone).toBe('America/Argentina/Buenos_Aires');
+    expect(Array.isArray(props?.plugins)).toBe(true);
+    expect(props?.plugins?.length).toBe(5);
   });
 });

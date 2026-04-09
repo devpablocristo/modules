@@ -3,6 +3,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
+import luxonPlugin from "@fullcalendar/luxon";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import type { PointerEvent, ReactNode, Ref } from "react";
 import { useCallback, useEffect, useRef } from "react";
@@ -55,6 +56,7 @@ type EmbeddedCalendarOptions = Omit<
   | "eventAllow"
   | "eventConstraint"
   | "eventContent"
+  | "timeZone"
 >;
 
 export type CalendarSurfaceProps = {
@@ -102,6 +104,11 @@ export type CalendarSurfaceProps = {
   eventContent?: CalendarOptions["eventContent"];
   /** Contenido opcional a la derecha del grupo de vistas (p. ej. acciones de agenda). */
   toolbarTrailing?: ReactNode;
+  /**
+   * Zona IANA (p. ej. America/Argentina/Buenos_Aires). Con valor no vacío se registra el plugin Luxon
+   * para que selección, arrastre y horario de negocio coincidan con el backend (no con la zona del navegador).
+   */
+  timeZone?: string | null;
 };
 
 const defaultViewOptions: readonly CalendarViewOption[] = [
@@ -157,6 +164,7 @@ export function CalendarSurface({
   eventConstraint,
   eventContent,
   toolbarTrailing,
+  timeZone: timeZoneProp,
 }: CalendarSurfaceProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const crosshairRafRef = useRef<number | null>(null);
@@ -200,8 +208,13 @@ export function CalendarSurface({
     };
   }, []);
 
+  const resolvedTimeZone = timeZoneProp?.trim() ?? "";
+  const useNamedTimeZone = resolvedTimeZone.length > 0;
   const fullCalendarProps = {
-    plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin],
+    plugins: useNamedTimeZone
+      ? [dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin, luxonPlugin]
+      : [dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin],
+    ...(useNamedTimeZone ? { timeZone: resolvedTimeZone } : {}),
     initialView: view,
     headerToolbar: false,
     locale,
