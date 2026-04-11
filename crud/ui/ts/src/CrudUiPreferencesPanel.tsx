@@ -4,6 +4,12 @@ import type { CrudViewModeId } from "./types";
 import { CRUD_UI_PREFERENCES_FEATURE_KEYS, createCrudUiPreferencesApi, type CrudUiResourceOverride } from "./crudUiPreferences";
 import "./CrudUiPreferencesPanel.css";
 
+const CANONICAL_VIEW_MODES: Array<{ id: CrudViewModeId; label: string }> = [
+  { id: "list", label: "Lista" },
+  { id: "gallery", label: "Galería" },
+  { id: "kanban", label: "Tablero" },
+];
+
 export type CrudUiPreferencesResource = { resourceId: string; label: string };
 
 export type CrudUiPreferencesPanelCopy = {
@@ -66,7 +72,10 @@ export function CrudUiPreferencesPanel({
         return {
           resourceId: resource.resourceId,
           label: resource.label,
-          viewModes: config?.viewModes?.map((mode) => ({ id: mode.id, label: mode.label })) ?? [],
+          viewModes: CANONICAL_VIEW_MODES.map((mode) => ({
+            id: mode.id,
+            label: config?.viewModes?.find((entry) => entry.id === mode.id)?.label ?? mode.label,
+          })),
         };
       }),
     ).then((rows) => {

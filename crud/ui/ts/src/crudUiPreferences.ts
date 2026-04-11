@@ -14,7 +14,7 @@ export type CreateCrudUiPreferencesApiOptions = {
 };
 
 function isCrudViewModeId(value: string): value is CrudViewModeId {
-  return value === "list" || value === "gallery" || value === "kanban" || value === "table-detail";
+  return value === "list" || value === "gallery" || value === "kanban";
 }
 
 function sanitizeOverride(raw: unknown): CrudUiResourceOverride | null {
@@ -118,7 +118,7 @@ export function createCrudUiPreferencesApi(options: CreateCrudUiPreferencesApiOp
 
 /** Claves de flags expuestas en el panel de preferencias (orden estable). */
 export const CRUD_UI_PREFERENCES_FEATURE_KEYS = [
-  ["creatorFilter", "Filtro creador (Todos / Yo…)"],
+  ["creatorFilter", "Filtro de responsable (Todos / Asignado a mí…)"],
   ["headerQuickFilterStrip", "Franja de filtros en cabecera"],
   ["csvToolbar", "CSV toolbar"],
   ["pagination", "Paginación"],

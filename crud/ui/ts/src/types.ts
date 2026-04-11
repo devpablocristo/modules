@@ -80,7 +80,7 @@ export type CrudHttpClient = {
 };
 
 /** Modos de vista conocidos por el shell CRUD (la app puede declarar solo un subconjunto). */
-export type CrudViewModeId = "list" | "gallery" | "kanban" | "table-detail";
+export type CrudViewModeId = "list" | "gallery" | "kanban";
 
 export type CrudViewModeConfig = {
   id: CrudViewModeId;
