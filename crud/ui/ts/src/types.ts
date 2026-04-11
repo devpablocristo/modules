@@ -15,6 +15,14 @@ export type CrudColumn<T> = {
   header: string;
   render?: (value: unknown, row: T) => ReactNode;
   className?: string;
+  /**
+   * Si es false, la columna no muestra ordenación en cabecera. Por defecto true.
+   */
+  sortable?: boolean;
+  /**
+   * Valor usado para ordenar filas completas (si no, se usa `row[key]`).
+   */
+  sortValue?: (row: T) => unknown;
 };
 
 export type CrudFormField = {
@@ -71,6 +79,32 @@ export type CrudHttpClient = {
   json<TResponse>(path: string, init?: { method?: string; body?: Record<string, unknown> }): Promise<TResponse>;
 };
 
+/** Modos de vista conocidos por el shell CRUD (la app puede declarar solo un subconjunto). */
+export type CrudViewModeId = "list" | "gallery" | "kanban" | "table-detail";
+
+export type CrudViewModeConfig = {
+  id: CrudViewModeId;
+  label: string;
+  path: string;
+  ariaLabel?: string;
+  isDefault?: boolean;
+};
+
+/** Flags opcionales del template de listado (producto / preferencias de usuario pueden apagarlos). */
+export type CrudFeatureFlags = {
+  creatorFilter?: boolean;
+  /**
+   * Franja bajo el título con filtros rápidos tipo chip (p. ej. ownership vía `listHeaderInlineSlot`).
+   * Si es `false`, no se renderiza aunque exista slot (p. ej. inventario sin chips hasta definir otro filtro).
+   */
+  headerQuickFilterStrip?: boolean;
+  csvToolbar?: boolean;
+  pagination?: boolean;
+  tagsColumn?: boolean;
+  /** Cabeceras clicables para ordenar filas (asc/desc). Por defecto true. */
+  columnSort?: boolean;
+};
+
 /**
  * Configuración de la página: etiquetas ya resueltas en el idioma de la app.
  */
@@ -91,6 +125,8 @@ export type CrudPageConfig<T extends { id: string }> = {
   labelPlural: string;
   labelPluralCap: string;
   columns: CrudColumn<T>[];
+  /** Variante opcional de columnas para la vista de archivados. */
+  archivedColumns?: CrudColumn<T>[];
   formFields: CrudFormField[];
   searchText: (row: T) => string;
   toFormValues: (row: T) => CrudFormValues;
@@ -112,6 +148,11 @@ export type CrudPageConfig<T extends { id: string }> = {
    */
   onExternalEdit?: (row: T) => void;
   /**
+   * Clic en la fila (fuera de la columna de acciones). Útil cuando no hay columna «Acciones» y el detalle
+   * se abre en modal u otra superficie.
+   */
+  onRowClick?: (row: T) => void;
+  /**
    * Filtra filas en cliente después del listado y antes del input de búsqueda.
    */
   preSearchFilter?: (items: T[]) => T[];
@@ -124,4 +165,12 @@ export type CrudPageConfig<T extends { id: string }> = {
    * Si está definido, oculta el input de búsqueda interno y usa este valor.
    */
   externalSearch?: string;
+  /** Modos de vista alternativos a la lista (galería, kanban, etc.) — el producto define rutas y render. */
+  viewModes?: CrudViewModeConfig[];
+  /** Interruptores de plantilla del listado; por defecto todo encendido vía `mergeCanonicalCrudDefaults`. */
+  featureFlags?: CrudFeatureFlags;
+  /**
+   * Si es true y el recurso `supportsArchived`, el listado arranca mostrando archivados (p. ej. `?archived=1` en la URL).
+   */
+  initialShowArchived?: boolean;
 };

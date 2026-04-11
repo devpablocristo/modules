@@ -3,6 +3,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { NotificationFeed } from './NotificationFeed';
+import {
+  buildHandoffUserMessage,
+  toAINotificationFeedItem,
+  toApprovalNotificationFeedItem,
+} from './notificationModels';
 
 describe('NotificationFeed', () => {
   it('renders the loading state before the empty state', () => {
@@ -62,5 +67,42 @@ describe('NotificationFeed', () => {
     render(<NotificationFeed items={[]} emptyMessage="No notifications" />);
 
     expect(screen.getByText('No notifications')).toBeTruthy();
+  });
+
+  it('builds a reusable handoff message and maps AI notifications', () => {
+    const item = toAINotificationFeedItem({
+      id: 'insight-1',
+      title: 'Costo alto',
+      body: 'Se detecto un desvio de costos.',
+      severity: 90,
+      unread: true,
+      scope: 'cost_overrun',
+    });
+
+    expect(item.badge).toBe('Alta');
+    expect(item.tone).toBe('critical');
+    expect(item.eyebrow).toBe('cost_overrun');
+    expect(
+      buildHandoffUserMessage({
+        notificationId: 'insight-1',
+        title: 'Costo alto',
+        body: 'Se detecto un desvio de costos.',
+      }),
+    ).toContain('Costo alto');
+  });
+
+  it('maps approval notifications with risk tone', () => {
+    const item = toApprovalNotificationFeedItem({
+      id: 'approval-1',
+      title: 'Aprobacion pendiente',
+      body: 'Una accion sensible espera revision.',
+      riskLevel: 'high',
+      status: 'pending',
+      unread: true,
+    });
+
+    expect(item.tone).toBe('critical');
+    expect(item.badge).toBe('pending');
+    expect(item.unread).toBe(true);
   });
 });

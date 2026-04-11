@@ -119,13 +119,28 @@ describe("CrudPage", () => {
     });
 
     expect(await screen.findByText("Ada Lovelace")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "gra" } });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "gra" } });
 
     await waitFor(() => {
       expect(searchMock).toHaveBeenCalledTimes(1);
     });
     expect(screen.queryByText("Ada Lovelace")).toBeNull();
     expect(screen.getByText("Grace Hopper")).toBeTruthy();
+  });
+
+  it("starts in archived view when initialShowArchived is true", async () => {
+    const list = vi.fn().mockImplementation(async ({ archived }: { archived: boolean }) =>
+      archived ? [{ id: "a1", name: "Old" }] : [{ id: "1", name: "Active user" }],
+    );
+
+    renderPage({
+      supportsArchived: true,
+      initialShowArchived: true,
+      dataSource: { list },
+    });
+
+    expect(await screen.findByText("Old")).toBeTruthy();
+    expect(list).toHaveBeenNthCalledWith(1, { archived: true });
   });
 
   it("switches to archived mode and restores rows through the data source", async () => {
@@ -151,5 +166,55 @@ describe("CrudPage", () => {
     });
     expect(list).toHaveBeenNthCalledWith(1, { archived: false });
     expect(list).toHaveBeenNthCalledWith(2, { archived: true });
+  });
+
+  it("invoca onRowClick al pulsar la fila y no muestra columna Acciones si no hay acciones", async () => {
+    const rows: UserRow[] = [{ id: "1", name: "Ada" }];
+    const onRowClick = vi.fn();
+
+    renderPage({
+      allowEdit: false,
+      allowDelete: false,
+      rowActions: [],
+      dataSource: { list: vi.fn().mockResolvedValue(rows) },
+      onRowClick,
+    });
+
+    expect(await screen.findByText("Ada")).toBeTruthy();
+    expect(screen.queryByText("Actions")).toBeNull();
+
+    const row = screen.getByText("Ada").closest("tr");
+    expect(row).toBeTruthy();
+    fireEvent.click(row!);
+
+    expect(onRowClick).toHaveBeenCalledWith(rows[0]);
+  });
+
+  it("ordena filas al pulsar la cabecera de columna (asc / desc)", async () => {
+    const rows: UserRow[] = [
+      { id: "1", name: "Zara" },
+      { id: "2", name: "Ana" },
+      { id: "3", name: "Mina" },
+    ];
+    searchMock.mockImplementation((q, entries) => entries);
+
+    renderPage({
+      dataSource: { list: vi.fn().mockResolvedValue(rows) },
+    });
+
+    expect(await screen.findByText("Zara")).toBeTruthy();
+    const sortBtn = screen.getByRole("button", { name: /Ordenar por name/i });
+    fireEvent.click(sortBtn);
+    const namesAsc = screen.getAllByRole("row").slice(1).map((r) => r.textContent ?? "");
+    expect(namesAsc[0]).toContain("Ana");
+    expect(namesAsc[1]).toContain("Mina");
+    expect(namesAsc[2]).toContain("Zara");
+
+    fireEvent.click(sortBtn);
+    await waitFor(() => {
+      const namesDesc = screen.getAllByRole("row").slice(1).map((r) => r.textContent ?? "");
+      expect(namesDesc[0]).toContain("Zara");
+      expect(namesDesc[2]).toContain("Ana");
+    });
   });
 });

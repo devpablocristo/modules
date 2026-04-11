@@ -61,6 +61,12 @@ export type MergeCsvToolbarParams<T extends { id: string }> = {
   importClientRow: (values: CrudFormValues) => Promise<void>;
   /** Textos post-import; por defecto inglés neutro. */
   messages?: Partial<CsvToolbarMessages>;
+  /**
+   * Con `mode: "client"`, permite importación vía servidor (dataio) usando `importEntity` sin cambiar el export cliente.
+   */
+  importUsesServer?: boolean;
+  /** Entidad dataio para import servidor cuando `importUsesServer`; por defecto `entity`. */
+  importEntity?: string;
 };
 
 function defaultColumns<T extends { id: string }>(config: CrudPageConfig<T>): CSVColumn[] {
@@ -182,14 +188,17 @@ export function buildCsvToolbarActions<T extends { id: string }>(
     ui,
     importClientRow,
     messages: messagesPartial,
+    importUsesServer = false,
+    importEntity,
   } = params;
   const messages: CsvToolbarMessages = { ...defaultCsvToolbarMessages, ...messagesPartial };
 
   const actions: CrudToolbarAction<T>[] = [];
 
-  const canServerImport = mode === "server" && Boolean(serverImport);
+  const importEntityResolved = importEntity ?? entity;
+  const canServerImport = Boolean(serverImport) && (mode === "server" || Boolean(importUsesServer));
   const canServerExport = mode === "server" && Boolean(serverExport);
-  const canClientImport = mode === "client" && allowImport;
+  const canClientImport = mode === "client" && allowImport && !importUsesServer;
 
   if (allowExport) {
     if (mode === "server") {
@@ -198,6 +207,7 @@ export function buildCsvToolbarActions<T extends { id: string }>(
           id: "csv-export",
           label: "Exportar CSV",
           kind: "secondary",
+          isVisible: ({ archived }) => !archived,
           onClick: async () => {
             if (!serverExport) return;
             await serverExport.download(entity);
@@ -209,6 +219,7 @@ export function buildCsvToolbarActions<T extends { id: string }>(
         id: "csv-export",
         label: "Exportar CSV",
         kind: "secondary",
+        isVisible: ({ archived }) => !archived,
         onClick: async ({ items }) => {
           const content = buildCSV(
             columns,
@@ -225,10 +236,11 @@ export function buildCsvToolbarActions<T extends { id: string }>(
       id: "csv-import",
       label: "Importar CSV",
       kind: "secondary",
+      isVisible: ({ archived }) => !archived,
       onClick: async ({ reload }) => {
-        if (mode === "server") {
+        if (canServerImport) {
           if (!serverImport) return;
-          const result = await importServerCSV(entity, importMode, serverImport, ui);
+          const result = await importServerCSV(importEntityResolved, importMode, serverImport, ui);
           await reload();
           ui.notify(messages.importServerDone(result));
           return;

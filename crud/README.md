@@ -4,8 +4,12 @@ Responsabilidad CRUD agnóstica de dominio, dividida por subresponsabilidad:
 
 | Artefacto | Relación con `core` | Contenido |
 |-----------|---------------------|-----------|
-| `ui/ts` | Depende de `core/browser/ts` (`@devpablocristo/core-browser/crud` para layout) | `@devpablocristo/modules-crud-ui` — `CrudPage`, tipos, strings por defecto y helpers de rutas REST. |
+| `ui/ts` | Depende de `core/browser/ts` (`@devpablocristo/core-browser/crud` para layout) | `@devpablocristo/modules-crud-ui` — `CrudPage`, tipos, strings, rutas REST, `mergeCanonicalCrudDefaults` (`/surface`), preferencias de UI (`createCrudUiPreferencesApi`, `CrudUiPreferencesPanel`). |
 | `paths/go` | Módulo Go chico con `go.mod` propio | `github.com/devpablocristo/modules/crud/paths/go` — constantes de segmentos URL. |
+
+## Publicar `@devpablocristo/modules-crud-ui` (npm)
+
+Desde `modules/crud/ui/ts` (tras `npm ci` y tests verdes): `npm publish --access public`. Tag Git del repo `modules`: `crud/ui/ts/v<versión>` (ver `docs/VERSIONING.md`). En el producto, fijar dependencia `^0.7.0` o superior que incluya `surface` y preferencias de UI.
 
 ## Imports
 

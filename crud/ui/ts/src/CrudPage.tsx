@@ -6,12 +6,15 @@
  *
  * Shell de layout: `core/browser/ts`. Orquestación CRUD: `modules/crud/ui/ts`.
  */
-import { FormEvent, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CrudPageShell, parsePaginatedResponse } from "@devpablocristo/core-browser/crud";
+import { CrudShellHeaderActionsColumn } from "./CrudShellHeaderActionsColumn";
 import { search as fuzzySearch, type SearchEntry } from "@devpablocristo/core-browser/search";
+import { compareUnknown, getComparableFromRow, type SortDirection } from "./columnSort";
 import { crudItemPath, crudListPath } from "./restPaths";
 import { interpolate, mergeCrudStrings, type CrudStrings, defaultCrudStrings } from "./strings";
 import type {
+  CrudColumn,
   CrudFormValues,
   CrudPageConfig,
   CrudRowAction,
@@ -61,6 +64,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
     labelPlural,
     labelPluralCap,
     columns,
+    archivedColumns,
     formFields,
     searchText,
     toFormValues,
@@ -77,13 +81,18 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
     strings: stringsPartial,
     stringsBase = defaultCrudStrings,
     onExternalEdit,
+    onRowClick,
     preSearchFilter,
     listHeaderInlineSlot,
     externalSearch,
+    viewModes: _viewModes,
+    featureFlags,
+    initialShowArchived = false,
   } = props;
 
   const str = useMemo(() => mergeCrudStrings(stringsBase, stringsPartial), [stringsBase, stringsPartial]);
   const httpClient = httpClientProp;
+  const columnSortEnabled = featureFlags?.columnSort !== false;
 
   const vars = useMemo(
     () => ({
@@ -102,7 +111,9 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const [error, setError] = useState("");
   const [internalSearch, setInternalSearch] = useState("");
   const search = externalSearch ?? internalSearch;
-  const [showArchived, setShowArchived] = useState(false);
+  const [showArchived, setShowArchived] = useState(() =>
+    Boolean(initialShowArchived && supportsArchived),
+  );
 
   const [editing, setEditing] = useState<T | null>(null);
   const [creating, setCreating] = useState(false);
@@ -112,6 +123,8 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteText, setConfirmDeleteText] = useState("");
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
 
   // Evita condiciones de carrera (p. ej. React StrictMode doble mount) que dejan loading en true.
   const loadSeqRef = useRef(0);
@@ -134,6 +147,12 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const canHardDelete = allowHardDelete ?? (supportsArchived && Boolean(dataSource?.hardDelete || basePath));
   const showForm = (creating || (editing !== null && !onExternalEdit)) && formFields.length > 0;
   const hardDeleteWord = str.confirmWord;
+
+  const showActionsColumn = showArchived
+    ? canRestore || canHardDelete
+    : canEdit || rowActions.length > 0 || canDelete;
+  const visibleColumns = showArchived && archivedColumns?.length ? archivedColumns : columns;
+  const rowClickHandler = showArchived ? undefined : onRowClick;
 
   const defaultPageSize = 100;
 
@@ -357,9 +376,36 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
     return fuzzySearch(q, searchEntries).map((r) => r.item);
   }, [search, preSearchItems, searchEntries]);
 
+  const sortedRows = useMemo(() => {
+    if (!columnSortEnabled || sortKey == null) return filtered;
+    const col = visibleColumns.find((c) => c.key === sortKey) as CrudColumn<T> | undefined;
+    if (!col || col.sortable === false) return filtered;
+    const key = col.key;
+    const sv = col.sortValue;
+    return [...filtered].sort((ra, rb) =>
+      compareUnknown(getComparableFromRow(ra, key, sv), getComparableFromRow(rb, key, sv), sortDir),
+    );
+  }, [columnSortEnabled, filtered, sortKey, sortDir, visibleColumns]);
+
+  const onColumnSortClick = useCallback(
+    (column: CrudColumn<T>) => {
+      if (!columnSortEnabled || column.sortable === false) return;
+      const k = column.key;
+      if (sortKey !== k) {
+        setSortKey(k);
+        setSortDir("asc");
+      } else {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      }
+    },
+    [columnSortEnabled, sortKey],
+  );
+
   const visibleToolbarActions = toolbarActions.filter((action) => action.isVisible?.({ archived: showArchived, items }) ?? true);
+  const rawToolbarActionCount = toolbarActions?.length ?? 0;
+  /** Incluye acciones declaradas aunque `isVisible` las oculte en este momento (evita fila vacía sin CSV/archivados). */
   const showToolbarButtonRow =
-    visibleToolbarActions.length > 0 || canCreate || supportsArchived;
+    visibleToolbarActions.length > 0 || canCreate || supportsArchived || rawToolbarActionCount > 0;
 
   const searchPlaceholderResolved =
     searchPlaceholder != null && searchPlaceholder !== ""
@@ -369,61 +415,70 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const titleActive = sentenceCase(labelPluralCap);
   const titleArchivedView = sentenceCase(interpolate(str.titleArchived, { ...vars, labelPluralCap }));
 
+  const shellSearchField =
+    externalSearch == null
+      ? {
+          value: internalSearch,
+          onChange: setInternalSearch,
+          placeholder: searchPlaceholderResolved,
+          inputClassName: "m-kanban__search",
+        }
+      : null;
+
+  const toolbarButtonGroup = showToolbarButtonRow ? (
+    <>
+      {visibleToolbarActions.map((action) => (
+        <button
+          key={action.id}
+          type="button"
+          className={buttonClass(action.kind)}
+          onClick={() => {
+            void runToolbarAction(action);
+          }}
+        >
+          {formatFieldText(action.label)}
+        </button>
+      ))}
+      {canCreate && (
+        <button type="button" className="btn-sm btn-primary" onClick={openCreate}>
+          {createLabel ? formatFieldText(createLabel) : sentenceCase(interpolate(str.buttonNew, vars))}
+        </button>
+      )}
+      {supportsArchived && (
+        <button
+          type="button"
+          className={`btn-sm ${showArchived ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => {
+            closeForm();
+            cancelHardDelete();
+            setShowArchived((current) => !current);
+          }}
+        >
+          {showArchived ? str.toggleShowActive : str.toggleShowArchived}
+        </button>
+      )}
+    </>
+  ) : null;
+
+  const headerActionsResolved =
+    shellSearchField || toolbarButtonGroup ? (
+      <CrudShellHeaderActionsColumn search={shellSearchField}>{toolbarButtonGroup}</CrudShellHeaderActionsColumn>
+    ) : undefined;
+
   return (
     <CrudPageShell
       title={showArchived ? titleArchivedView : titleActive}
       subtitle={
         loading
           ? str.statusLoading
-          : `${filtered.length} ${filtered.length === 1 ? label : labelPlural}`
+          : `${sortedRows.length} ${sortedRows.length === 1 ? label : labelPlural}`
       }
       headerLeadSlot={
-        listHeaderInlineSlot != null ? (
+        listHeaderInlineSlot != null && featureFlags?.headerQuickFilterStrip !== false ? (
           <div className="crud-list-header-lead">{listHeaderInlineSlot({ items })}</div>
         ) : undefined
       }
-      search={externalSearch == null ? {
-        value: internalSearch,
-        onChange: setInternalSearch,
-        placeholder: searchPlaceholderResolved,
-        inputClassName: "m-kanban__search",
-      } : undefined}
-      headerActions={showToolbarButtonRow ? (
-        <>
-          {visibleToolbarActions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className={buttonClass(action.kind)}
-              onClick={() => {
-                void runToolbarAction(action);
-              }}
-            >
-              {formatFieldText(action.label)}
-            </button>
-          ))}
-          {canCreate && (
-            <button type="button" className="btn-sm btn-primary" onClick={openCreate}>
-              {createLabel
-                ? formatFieldText(createLabel)
-                : sentenceCase(interpolate(str.buttonNew, vars))}
-            </button>
-          )}
-          {supportsArchived && (
-            <button
-              type="button"
-              className={`btn-sm ${showArchived ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => {
-                closeForm();
-                cancelHardDelete();
-                setShowArchived((current) => !current);
-              }}
-            >
-              {showArchived ? str.toggleShowActive : str.toggleShowArchived}
-            </button>
-          )}
-        </>
-      ) : undefined}
+      headerActions={headerActionsResolved}
       error={error ? <div className="alert alert-error">{error}</div> : undefined}
       form={
         showForm && (!showArchived || creating) ? (
@@ -509,7 +564,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
     >
       {loading ? (
         <div className="spinner" />
-      ) : filtered.length === 0 ? (
+      ) : sortedRows.length === 0 ? (
         <div className="empty-state">
           <p>
             {search.trim()
@@ -535,27 +590,62 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
           <table className="crud-table">
             <thead>
               <tr>
-                {columns.map((column) => (
-                  <th key={column.key} className={column.className}>
-                    {sentenceCase(formatFieldText(column.header))}
-                  </th>
-                ))}
-                <th className="col-actions">{sentenceCase(str.tableActions)}</th>
+                {visibleColumns.map((column) => {
+                  const sortable = columnSortEnabled && column.sortable !== false;
+                  const active = sortKey === column.key;
+                  const ariaSort = !sortable ? undefined : active ? (sortDir === "asc" ? "ascending" : "descending") : "none";
+                  const labelText = sentenceCase(formatFieldText(column.header));
+                  return (
+                    <th key={column.key} className={column.className} aria-sort={ariaSort}>
+                      {sortable ? (
+                        <button
+                          type="button"
+                          className="crud-table__sort-btn"
+                          onClick={() => onColumnSortClick(column)}
+                          aria-label={`Ordenar por ${labelText}`}
+                        >
+                          <span className="crud-table__sort-label">{labelText}</span>
+                          <span className="crud-table__sort-icons" aria-hidden>
+                            <span className={active && sortDir === "asc" ? "crud-table__sort-icon crud-table__sort-icon--active" : "crud-table__sort-icon"}>
+                              ▲
+                            </span>
+                            <span className={active && sortDir === "desc" ? "crud-table__sort-icon crud-table__sort-icon--active" : "crud-table__sort-icon"}>
+                              ▼
+                            </span>
+                          </span>
+                        </button>
+                      ) : (
+                        labelText
+                      )}
+                    </th>
+                  );
+                })}
+                {showActionsColumn ? (
+                  <th className="col-actions">{sentenceCase(str.tableActions)}</th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row) => {
+              {sortedRows.map((row) => {
                 const visibleRowActions = rowActions.filter(
                   (action) => action.isVisible?.(row, { archived: showArchived }) ?? true,
                 );
                 return (
-                  <tr key={row.id}>
-                    {columns.map((column) => (
+                  <tr
+                    key={row.id}
+                    className={rowClickHandler ? "crud-table__row-clickable" : undefined}
+                    onClick={rowClickHandler ? () => { rowClickHandler(row); } : undefined}
+                  >
+                    {visibleColumns.map((column) => (
                       <td key={column.key} className={column.className}>
                         {column.render ? column.render(row[column.key], row) : String(row[column.key] ?? "") || "---"}
                       </td>
                     ))}
-                    <td className="col-actions">
+                    {showActionsColumn ? (
+                    <td
+                      className="col-actions"
+                      onClick={rowClickHandler ? (event) => { event.stopPropagation(); } : undefined}
+                    >
                       {showArchived ? (
                         <div className="crud-row-actions">
                           {canRestore && (
@@ -658,6 +748,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
                         </div>
                       )}
                     </td>
+                    ) : null}
                   </tr>
                 );
               })}
