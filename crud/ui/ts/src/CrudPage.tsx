@@ -416,7 +416,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const titleArchivedView = sentenceCase(interpolate(str.titleArchived, { ...vars, labelPluralCap }));
 
   const shellSearchField =
-    externalSearch == null
+    externalSearch == null && featureFlags?.searchBar !== false
       ? {
           value: internalSearch,
           onChange: setInternalSearch,
@@ -754,7 +754,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
               })}
             </tbody>
           </table>
-          {hasMore && (
+          {hasMore && featureFlags?.pagination !== false && (
             <div className="crud-load-more">
               <button
                 type="button"

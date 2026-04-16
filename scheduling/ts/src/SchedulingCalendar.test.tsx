@@ -191,7 +191,7 @@ vi.mock('./SchedulingBookingModal', () => ({
   },
 }));
 
-vi.mock('../../../calendar/board/ts/src/next', () => ({
+vi.mock('@devpablocristo/modules-calendar-board/next', () => ({
   resolveInitialTimeGridScrollTime: () => '08:00:00',
   resolveInitialTimeGridViewport: () => ({ scrollTime: '07:30:00', slotMinTime: '07:00:00' }),
   CalendarSurface: ({

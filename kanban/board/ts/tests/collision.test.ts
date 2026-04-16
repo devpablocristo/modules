@@ -19,7 +19,7 @@ describe("kanbanCollisionDetection", () => {
     rectIntersectionMock.mockReturnValue([{ id: "col-doing" }]);
     closestCornersMock.mockReturnValue([{ id: "col-done" }]);
 
-    expect(kanbanCollisionDetection({} as never)).toBe(pointer);
+    expect(kanbanCollisionDetection({} as never)).toStrictEqual(pointer);
     expect(rectIntersectionMock).not.toHaveBeenCalled();
     expect(closestCornersMock).not.toHaveBeenCalled();
   });
@@ -31,9 +31,9 @@ describe("kanbanCollisionDetection", () => {
     pointerWithinMock.mockReturnValue([]);
     rectIntersectionMock.mockReturnValue(rect);
     closestCornersMock.mockReturnValue(corners);
-    expect(kanbanCollisionDetection({} as never)).toBe(rect);
+    expect(kanbanCollisionDetection({} as never)).toStrictEqual(rect);
 
     rectIntersectionMock.mockReturnValue([]);
-    expect(kanbanCollisionDetection({} as never)).toBe(corners);
+    expect(kanbanCollisionDetection({} as never)).toStrictEqual(corners);
   });
 });

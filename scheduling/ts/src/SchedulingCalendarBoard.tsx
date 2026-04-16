@@ -9,7 +9,7 @@ import {
   resolveInitialTimeGridViewport,
   type CalendarSurfaceProps,
   type CalendarView,
-} from '../../../calendar/board/ts/src/next';
+} from '@devpablocristo/modules-calendar-board/next';
 import type { SchedulingClient } from './client';
 import {
   formatSchedulingClock,

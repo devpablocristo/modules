@@ -1,10 +1,14 @@
 {
   "name": "@devpablocristo/modules-crud-ui",
-  "version": "0.7.0",
+  "version": "0.8.2",
   "private": false,
   "type": "module",
   "files": [
-    "src"
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.spec.ts",
+    "!src/**/*.spec.tsx"
   ],
   "exports": {
     ".": "./src/index.ts",
@@ -18,7 +22,7 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
-    "@devpablocristo/core-browser": "^0.2.0"
+    "@devpablocristo/core-browser": "^0.4.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

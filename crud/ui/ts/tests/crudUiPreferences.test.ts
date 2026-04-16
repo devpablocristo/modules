@@ -80,4 +80,29 @@ describe("createCrudUiPreferencesApi", () => {
     expect(next.featureFlags?.pagination).toBe(false);
     expect(next.featureFlags?.creatorFilter).toBe(true);
   });
+
+  it("translates archivedToggle and createAction flags into config props", () => {
+    const api = createCrudUiPreferencesApi({
+      storageKey: "t.crud-ui-3",
+      knownResourceIds: ["products"],
+    });
+    api.writeState({
+      products: { featureFlags: { archivedToggle: false, createAction: false } },
+    });
+    const config: CrudPageConfig<{ id: string }> = {
+      label: "p",
+      labelPlural: "ps",
+      labelPluralCap: "Ps",
+      columns: [],
+      formFields: [],
+      searchText: () => "",
+      toFormValues: () => ({}),
+      isValid: () => true,
+      supportsArchived: true,
+      allowCreate: true,
+    };
+    const next = api.applyCrudUiOverride("products", config);
+    expect(next.supportsArchived).toBe(false);
+    expect(next.allowCreate).toBe(false);
+  });
 });

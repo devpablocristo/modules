@@ -217,4 +217,25 @@ describe("CrudPage", () => {
       expect(namesDesc[2]).toContain("Ana");
     });
   });
+
+  it("hides the search input when featureFlags.searchBar is false", async () => {
+    renderPage({
+      dataSource: { list: vi.fn().mockResolvedValue([{ id: "1", name: "Ada Lovelace" }]) },
+      featureFlags: { searchBar: false },
+    });
+
+    expect(await screen.findByText("Ada Lovelace")).toBeTruthy();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+  });
+
+  it("hides the load-more button when featureFlags.pagination is false", async () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ id: String(i), name: `User ${i}` }));
+    renderPage({
+      dataSource: { list: vi.fn().mockResolvedValue(rows) },
+      featureFlags: { pagination: false },
+    });
+
+    expect(await screen.findByText("User 0")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Load more/i })).toBeNull();
+  });
 });

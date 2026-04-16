@@ -1,6 +1,6 @@
 {
   "name": "@devpablocristo/modules-scheduling",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "description": "Scheduling calendar, queue operator, and public booking flow for Pymes (React + FullCalendar).",
   "type": "module",
   "exports": {
@@ -10,14 +10,18 @@
     "./styles.next.css": "./src/styles.next.css"
   },
   "files": [
-    "src"
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.spec.ts",
+    "!src/**/*.spec.tsx"
   ],
   "publishConfig": {
     "access": "public"
   },
   "peerDependencies": {
-    "@devpablocristo/core-browser": "^0.2.0",
-    "@devpablocristo/modules-calendar-board": "^0.1.0",
+    "@devpablocristo/core-browser": "^0.4.0",
+    "@devpablocristo/modules-calendar-board": "^0.2.0",
     "@fullcalendar/core": "^6.1.20",
     "@fullcalendar/interaction": "^6.1.20",
     "@fullcalendar/luxon": "^6.1.20",
@@ -33,8 +37,8 @@
   },
   "devDependencies": {
     "@testing-library/react": "^14.3.1",
-    "@devpablocristo/core-browser": "^0.2.0",
-    "@devpablocristo/modules-calendar-board": "^0.1.0",
+    "@devpablocristo/core-browser": "^0.4.0",
+    "@devpablocristo/modules-calendar-board": "^0.2.0",
     "@fullcalendar/core": "^6.1.20",
     "@fullcalendar/interaction": "^6.1.20",
     "@fullcalendar/luxon": "^6.1.20",

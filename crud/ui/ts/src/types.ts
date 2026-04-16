@@ -31,6 +31,7 @@ export type CrudFormField = {
   type?: "text" | "email" | "tel" | "number" | "date" | "datetime-local" | "textarea" | "select" | "checkbox";
   placeholder?: string;
   required?: boolean;
+  rows?: number;
   fullWidth?: boolean;
   createOnly?: boolean;
   editOnly?: boolean;
@@ -99,7 +100,14 @@ export type CrudFeatureFlags = {
    */
   headerQuickFilterStrip?: boolean;
   csvToolbar?: boolean;
+  /** Barra de búsqueda interna del listado. Por defecto true. `false` oculta el input de search. */
+  searchBar?: boolean;
+  /** Botón de paginación «Cargar más» al pie del listado. Por defecto true. `false` lo oculta. */
   pagination?: boolean;
+  /** Botón «Ver archivados» en toolbar. `false` equivale a `supportsArchived: false` al aplicar override. */
+  archivedToggle?: boolean;
+  /** Botón «Crear» en toolbar. `false` equivale a `allowCreate: false` al aplicar override. */
+  createAction?: boolean;
   tagsColumn?: boolean;
   /** Cabeceras clicables para ordenar filas (asc/desc). Por defecto true. */
   columnSort?: boolean;

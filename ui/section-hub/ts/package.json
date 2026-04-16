@@ -1,14 +1,14 @@
 {
   "name": "@devpablocristo/modules-ui-section-hub",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/index.tsx",
     "./styles.css": "./src/styles.css"
   },
   "dependencies": {
-    "@devpablocristo/modules-ui-page-shell": "^0.1.0"
+    "@devpablocristo/modules-ui-page-shell": "^0.2.0"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
@@ -24,5 +24,15 @@
     "@types/react-dom": "^18.3.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.4"
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.spec.ts",
+    "!src/**/*.spec.tsx"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

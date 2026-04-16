@@ -1,24 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CrudPageConfig } from "./types";
+import type { CrudFeatureFlags, CrudPageConfig } from "./types";
 import type { CrudViewModeId } from "./types";
 import { CRUD_UI_PREFERENCES_FEATURE_KEYS, createCrudUiPreferencesApi, type CrudUiResourceOverride } from "./crudUiPreferences";
 import "./CrudUiPreferencesPanel.css";
 
-const CANONICAL_VIEW_MODES: Array<{ id: CrudViewModeId; label: string }> = [
-  { id: "list", label: "Lista" },
-  { id: "gallery", label: "Galería" },
-  { id: "kanban", label: "Tablero" },
-];
+const FALLBACK_VIEW_MODES: Array<{ id: CrudViewModeId; label: string }> = [{ id: "list", label: "Lista" }];
 
 export type CrudUiPreferencesResource = { resourceId: string; label: string };
+export type CrudUiPreferenceFeatureKey = readonly [keyof CrudFeatureFlags, string];
 
 export type CrudUiPreferencesPanelCopy = {
-  /** Título de sección (h3). Omitir para no mostrar. */
   title?: string;
   hint?: string;
-  /** Etiqueta sobre la lista de modos de vista. Omitir para no mostrar. */
-  enabledViewsLabel?: string;
-  defaultViewLabel: string;
+  defaultViewLabel?: string;
 };
 
 export type CrudUiPreferencesPanelProps = {
@@ -26,16 +20,15 @@ export type CrudUiPreferencesPanelProps = {
   resources: readonly CrudUiPreferencesResource[];
   changeEventName?: string;
   loadPageConfig: (resourceId: string) => Promise<Pick<CrudPageConfig<{ id: string }>, "viewModes"> | null>;
-  copy: CrudUiPreferencesPanelCopy;
-  /** Si es true, no muestra el encabezado de tarjeta con el nombre del recurso (h4). */
+  copy?: CrudUiPreferencesPanelCopy;
   hideResourceCardHeader?: boolean;
-  /** Clases del host (p. ej. tema admin del producto). */
+  hideDefaultViewSelector?: boolean;
+  featureKeys?: readonly CrudUiPreferenceFeatureKey[];
   classes?: {
     section?: string;
     hint?: string;
     stack?: string;
     grid?: string;
-    /** Clase extra en cada fila con interruptor (compat. con hosts que usaban checkboxRow). */
     checkboxRow?: string;
   };
 };
@@ -45,8 +38,10 @@ export function CrudUiPreferencesPanel({
   resources,
   changeEventName,
   loadPageConfig,
-  copy,
+  copy = { defaultViewLabel: "Vista por defecto" },
   hideResourceCardHeader = false,
+  hideDefaultViewSelector = false,
+  featureKeys = CRUD_UI_PREFERENCES_FEATURE_KEYS,
   classes = {},
 }: CrudUiPreferencesPanelProps) {
   const api = useMemo(
@@ -69,13 +64,14 @@ export function CrudUiPreferencesPanel({
     void Promise.all(
       resources.map(async (resource) => {
         const config = await loadPageConfig(resource.resourceId);
+        const viewModes =
+          config?.viewModes?.length
+            ? config.viewModes.map((mode) => ({ id: mode.id, label: mode.label }))
+            : FALLBACK_VIEW_MODES;
         return {
           resourceId: resource.resourceId,
           label: resource.label,
-          viewModes: CANONICAL_VIEW_MODES.map((mode) => ({
-            id: mode.id,
-            label: config?.viewModes?.find((entry) => entry.id === mode.id)?.label ?? mode.label,
-          })),
+          viewModes,
         };
       }),
     ).then((rows) => {
@@ -95,11 +91,8 @@ export function CrudUiPreferencesPanel({
 
   function updateResource(resourceId: string, next: CrudUiResourceOverride | undefined) {
     const merged: Record<string, CrudUiResourceOverride> = { ...state };
-    if (next === undefined) {
-      delete merged[resourceId];
-    } else {
-      merged[resourceId] = next;
-    }
+    if (next === undefined) delete merged[resourceId];
+    else merged[resourceId] = next;
     setState(merged);
     api.writeState(merged);
   }
@@ -116,6 +109,7 @@ export function CrudUiPreferencesPanel({
           const defaultId = override.defaultViewModeId ?? config?.viewModes[0]?.id;
           const featureFlags = override.featureFlags ?? {};
           const rowExtra = classes.checkboxRow ? ` ${classes.checkboxRow}` : "";
+
           return (
             <div key={resource.resourceId} className="card">
               {!hideResourceCardHeader ? (
@@ -124,62 +118,63 @@ export function CrudUiPreferencesPanel({
                 </div>
               ) : null}
               <div className={classes.grid}>
-                <div className="form-group">
-                  {copy.enabledViewsLabel ? <label>{copy.enabledViewsLabel}</label> : null}
-                  <div className="crud-ui-pref-stack">
-                    {(config?.viewModes ?? []).map((mode) => (
-                      <label key={mode.id} className={`crud-ui-pref-row${rowExtra}`}>
-                        <span className="crud-ui-pref-row__label">{mode.label}</span>
-                        <span className="crud-ui-pref-switch">
-                          <input
-                            type="checkbox"
-                            role="switch"
-                            className="crud-ui-pref-switch__input"
-                            checked={enabled.has(mode.id)}
-                            onChange={(e) => {
-                              const nextEnabled = new Set(enabled);
-                              if (e.target.checked) nextEnabled.add(mode.id);
-                              else nextEnabled.delete(mode.id);
-                              const enabledViewModeIds = Array.from(nextEnabled) as CrudViewModeId[];
-                              updateResource(resource.resourceId, {
-                                ...override,
-                                enabledViewModeIds,
-                                defaultViewModeId:
-                                  override.defaultViewModeId && enabledViewModeIds.includes(override.defaultViewModeId)
-                                    ? override.defaultViewModeId
-                                    : enabledViewModeIds[0],
-                              });
-                            }}
-                          />
-                          <span className="crud-ui-pref-switch__slider" aria-hidden />
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>{copy.defaultViewLabel}</label>
-                  <select
-                    value={defaultId ?? ""}
-                    onChange={(e) =>
-                      updateResource(resource.resourceId, {
-                        ...override,
-                        defaultViewModeId: e.target.value as CrudViewModeId,
-                      })
-                    }
-                  >
-                    {(config?.viewModes ?? [])
-                      .filter((mode) => enabled.has(mode.id))
-                      .map((mode) => (
-                        <option key={mode.id} value={mode.id}>
-                          {mode.label}
-                        </option>
-                      ))}
-                  </select>
+                <div className="crud-ui-pref-stack">
+                  {(config?.viewModes ?? []).map((mode) => (
+                    <label key={mode.id} className={`crud-ui-pref-row${rowExtra}`}>
+                      <span className="crud-ui-pref-row__label">{mode.label}</span>
+                      <span className="crud-ui-pref-switch">
+                        <input
+                          type="checkbox"
+                          role="switch"
+                          className="crud-ui-pref-switch__input"
+                          checked={enabled.has(mode.id)}
+                          onChange={(e) => {
+                            const nextEnabled = new Set(enabled);
+                            if (e.target.checked) nextEnabled.add(mode.id);
+                            else nextEnabled.delete(mode.id);
+                            const enabledViewModeIds = Array.from(nextEnabled) as CrudViewModeId[];
+                            updateResource(resource.resourceId, {
+                              ...override,
+                              enabledViewModeIds,
+                              defaultViewModeId:
+                                override.defaultViewModeId && enabledViewModeIds.includes(override.defaultViewModeId)
+                                  ? override.defaultViewModeId
+                                  : enabledViewModeIds[0],
+                            });
+                          }}
+                        />
+                        <span className="crud-ui-pref-switch__slider" aria-hidden />
+                      </span>
+                    </label>
+                  ))}
                 </div>
               </div>
+              {!hideDefaultViewSelector ? (
+                <div className={classes.grid}>
+                  <div className="form-group">
+                    {copy.defaultViewLabel ? <label>{copy.defaultViewLabel}</label> : null}
+                    <select
+                      value={defaultId ?? ""}
+                      onChange={(e) =>
+                        updateResource(resource.resourceId, {
+                          ...override,
+                          defaultViewModeId: e.target.value as CrudViewModeId,
+                        })
+                      }
+                    >
+                      {(config?.viewModes ?? [])
+                        .filter((mode) => enabled.has(mode.id))
+                        .map((mode) => (
+                          <option key={mode.id} value={mode.id}>
+                            {mode.label}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              ) : null}
               <div className={classes.grid}>
-                {CRUD_UI_PREFERENCES_FEATURE_KEYS.map(([flag, label]) => (
+                {featureKeys.map(([flag, label]) => (
                   <label key={flag} className={`crud-ui-pref-row${rowExtra}`}>
                     <span className="crud-ui-pref-row__label">{label}</span>
                     <span className="crud-ui-pref-switch">

@@ -39,11 +39,11 @@ function sanitizeOverride(raw: unknown): CrudUiResourceOverride | null {
 }
 
 function applyViewModeOverride(viewModes: CrudViewModeConfig[], override: CrudUiResourceOverride): CrudViewModeConfig[] {
-  const enabled = override.enabledViewModeIds?.length ? new Set(override.enabledViewModeIds) : null;
-  let next = enabled ? viewModes.filter((mode) => enabled.has(mode.id)) : [...viewModes];
-  if (next.length === 0) {
-    next = [...viewModes];
-  }
+  // undefined = sin override → todas. Array (aunque vacío) = intersección explícita.
+  const hasExplicitList = Array.isArray(override.enabledViewModeIds);
+  const enabled = hasExplicitList ? new Set(override.enabledViewModeIds) : null;
+  const next = enabled ? viewModes.filter((mode) => enabled.has(mode.id)) : [...viewModes];
+  if (next.length === 0) return [];
   const defaultId =
     override.defaultViewModeId && next.some((mode) => mode.id === override.defaultViewModeId)
       ? override.defaultViewModeId
@@ -103,13 +103,18 @@ export function createCrudUiPreferencesApi(options: CreateCrudUiPreferencesApiOp
     if (!override) return config;
 
     const nextViewModes = config.viewModes ? applyViewModeOverride(config.viewModes, override) : config.viewModes;
+    const mergedFlags = override.featureFlags
+      ? { ...(config.featureFlags ?? {}), ...override.featureFlags }
+      : config.featureFlags;
 
     return {
       ...config,
       viewModes: nextViewModes,
-      featureFlags: override.featureFlags
-        ? { ...(config.featureFlags ?? {}), ...override.featureFlags }
-        : config.featureFlags,
+      featureFlags: mergedFlags,
+      supportsArchived:
+        override.featureFlags?.archivedToggle === false ? false : config.supportsArchived,
+      allowCreate:
+        override.featureFlags?.createAction === false ? false : config.allowCreate,
     };
   }
 
@@ -118,9 +123,10 @@ export function createCrudUiPreferencesApi(options: CreateCrudUiPreferencesApiOp
 
 /** Claves de flags expuestas en el panel de preferencias (orden estable). */
 export const CRUD_UI_PREFERENCES_FEATURE_KEYS = [
-  ["creatorFilter", "Filtro de responsable (Todos / Asignado a mí…)"],
-  ["headerQuickFilterStrip", "Franja de filtros en cabecera"],
-  ["csvToolbar", "CSV toolbar"],
+  ["searchBar", "Buscador"],
+  ["creatorFilter", "Filtro de responsable"],
+  ["archivedToggle", "Ver archivados"],
+  ["createAction", "Acción crear"],
+  ["csvToolbar", "Acciones CSV"],
   ["pagination", "Paginación"],
-  ["tagsColumn", "Columna tags"],
 ] as const;

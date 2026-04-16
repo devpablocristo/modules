@@ -170,4 +170,26 @@ describe("StatusKanbanBoard", () => {
       expect(onMoveCard).toHaveBeenCalledWith("1", "done");
     });
   });
+
+  it("highlights the resolved target column while dragging over an existing card", async () => {
+    renderBoard({
+      items: [
+        { id: "1", title: "Ada", status: "todo" },
+        { id: "2", title: "Grace", status: "done" },
+      ],
+      resolveDropColumnId: (overId) => (overId === "2" ? "done" : null),
+    });
+
+    const props = dndState.lastProps as {
+      onDragStart: (event: { active: { id: string } }) => void;
+      onDragOver: (event: { over: { id: string }; collisions?: Array<{ id: string }> }) => void;
+    };
+
+    await act(async () => {
+      props.onDragStart({ active: { id: "1" } });
+      props.onDragOver({ over: { id: "1" }, collisions: [{ id: "2" }] });
+    });
+
+    expect(screen.getByText("Done").closest(".m-kanban__column-body")?.className).toContain("m-kanban__column-body--over");
+  });
 });

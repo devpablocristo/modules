@@ -1,7 +1,7 @@
 {
   "name": "@devpablocristo/modules-kanban-board",
-  "version": "0.2.1",
-  "private": true,
+  "version": "0.3.1",
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -14,7 +14,7 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
-    "@devpablocristo/core-browser": "^0.2.0"
+    "@devpablocristo/core-browser": "^0.4.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -33,5 +33,15 @@
     "react-dom": "^18.3.1",
     "typescript": "^5.8.0",
     "vitest": "^3.2.4"
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.spec.ts",
+    "!src/**/*.spec.tsx"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

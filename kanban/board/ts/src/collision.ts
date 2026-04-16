@@ -10,13 +10,13 @@ import {
  * Devuelve columnas y tarjetas — el handler resuelve la posición.
  */
 export const kanbanCollisionDetection: CollisionDetection = (args) => {
-  const activeId = args.active.id;
+  const activeId = args.active?.id;
 
-  const pointer = pointerWithin(args).filter((c) => c.id !== activeId);
+  const pointer = pointerWithin(args).filter((c) => activeId == null || c.id !== activeId);
   if (pointer.length > 0) return pointer;
 
-  const rect = rectIntersection(args).filter((c) => c.id !== activeId);
+  const rect = rectIntersection(args).filter((c) => activeId == null || c.id !== activeId);
   if (rect.length > 0) return rect;
 
-  return closestCorners(args).filter((c) => c.id !== activeId);
+  return closestCorners(args).filter((c) => activeId == null || c.id !== activeId);
 };

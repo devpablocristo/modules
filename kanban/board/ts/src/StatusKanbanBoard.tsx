@@ -72,6 +72,8 @@ function ColumnBody({
   count,
   boardDragging,
   droppable,
+  highlighted,
+  registerBodyRef,
   children,
   footer,
   showPlaceholder,
@@ -82,6 +84,8 @@ function ColumnBody({
   count: number;
   boardDragging: boolean;
   droppable: boolean;
+  highlighted?: boolean;
+  registerBodyRef?: (columnId: string, element: HTMLDivElement | null) => void;
   children: ReactNode;
   footer?: ReactNode;
   showPlaceholder?: boolean;
@@ -89,10 +93,14 @@ function ColumnBody({
 }) {
   const droppableId = `col-${columnId}`;
   const { setNodeRef, isOver } = useDroppable({ id: droppableId, disabled: !droppable });
+  const setRefs = (element: HTMLDivElement | null) => {
+    setNodeRef(element);
+    registerBodyRef?.(columnId, element);
+  };
   return (
     <div
-      ref={setNodeRef}
-      className={`m-kanban__column-body ${!droppable ? "m-kanban__column-body--no-drop" : ""} ${isOver ? "m-kanban__column-body--over" : ""} ${boardDragging ? "m-kanban__column-body--dragging" : ""}`}
+      ref={setRefs}
+      className={`m-kanban__column-body ${!droppable ? "m-kanban__column-body--no-drop" : ""} ${isOver || highlighted ? "m-kanban__column-body--over" : ""} ${boardDragging ? "m-kanban__column-body--dragging" : ""}`}
       data-column={columnId}
     >
       <div className="m-kanban__column-head">
@@ -179,6 +187,82 @@ function DraggableCard<T extends { id: string }>({
   );
 }
 
+function chooseDropColumnId<T extends { id: string }>(options: {
+  event: DragEndEvent;
+  items: T[];
+  currentColumnId: string;
+  columnIdSet: Set<string>;
+  resolveDropColumnId: (overId: string | undefined, items: T[]) => string | null;
+}) {
+  const { event, items, currentColumnId, columnIdSet, resolveDropColumnId } = options;
+  const directOverId = event.over?.id != null ? String(event.over.id) : undefined;
+
+  let direct: string | null = null;
+  if (directOverId?.startsWith("col-")) {
+    const colId = directOverId.slice(4);
+    direct = columnIdSet.has(colId) ? colId : null;
+  } else {
+    direct = resolveDropColumnId(directOverId, items);
+  }
+
+  if (direct && direct !== currentColumnId) return direct;
+
+  const collisionCandidates =
+    event.collisions
+      ?.map((collision) => {
+        const collisionId = String(collision.id);
+        if (collisionId.startsWith("col-")) {
+          const colId = collisionId.slice(4);
+          return columnIdSet.has(colId) ? colId : null;
+        }
+        return resolveDropColumnId(collisionId, items);
+      })
+      .filter((columnId): columnId is string => Boolean(columnId)) ?? [];
+
+  return collisionCandidates.find((columnId) => columnId !== currentColumnId) ?? direct;
+}
+
+function chooseHoverColumnId<T extends { id: string }>(options: {
+  event: DragOverEvent;
+  items: T[];
+  columnIdSet: Set<string>;
+  resolveDropColumnId: (overId: string | undefined, items: T[]) => string | null;
+  pointer: { x: number; y: number };
+  columnBodyRefs: Map<string, HTMLDivElement>;
+}) {
+  const { event, items, columnIdSet, resolveDropColumnId, pointer, columnBodyRefs } = options;
+  for (const [columnId, element] of columnBodyRefs.entries()) {
+    const rect = element.getBoundingClientRect();
+    if (pointer.x >= rect.left && pointer.x <= rect.right && pointer.y >= rect.top && pointer.y <= rect.bottom) {
+      return columnId;
+    }
+  }
+
+  const directOverId = event.over?.id != null ? String(event.over.id) : undefined;
+
+  if (directOverId?.startsWith("col-")) {
+    const colId = directOverId.slice(4);
+    if (columnIdSet.has(colId)) return colId;
+  }
+
+  const direct = resolveDropColumnId(directOverId, items);
+  if (direct) return direct;
+
+  const collisionCandidates =
+    event.collisions
+      ?.map((collision) => {
+        const collisionId = String(collision.id);
+        if (collisionId.startsWith("col-")) {
+          const colId = collisionId.slice(4);
+          return columnIdSet.has(colId) ? colId : null;
+        }
+        return resolveDropColumnId(collisionId, items);
+      })
+      .filter((columnId): columnId is string => Boolean(columnId)) ?? [];
+
+  return collisionCandidates[0] ?? null;
+}
+
 /* ─── Board ─── */
 
 export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanBoardProps<T>): ReactElement {
@@ -223,10 +307,12 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
   const [overColId, setOverColId] = useState<string | null>(null);
   const cardHeightsRef = useRef<Map<string, number>>(new Map());
   const cardRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
+  const columnBodyRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const itemsRef = useRef<T[]>([]);
   itemsRef.current = items;
   const suppressCardOpenRef = useRef<SuppressCardOpen>({ id: null, until: 0 });
   const activeDragIdRef = useRef<string | null>(null);
+  const lastPointerX = useRef(0);
   const lastPointerY = useRef(0);
 
   const sensors = useSensors(
@@ -308,27 +394,38 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
   }, []);
 
   const handleDragOver = (e: DragOverEvent) => {
-    const overId = e.over?.id != null ? String(e.over.id) : undefined;
-    // Solo columnas en collision detection
-    if (overId?.startsWith("col-")) {
-      setOverColId(overId.slice(4));
-    } else {
-      setOverColId(null);
-    }
+    setOverColId(
+      chooseHoverColumnId({
+        event: e,
+        items: itemsRef.current,
+        columnIdSet,
+        resolveDropColumnId,
+        pointer: { x: lastPointerX.current, y: lastPointerY.current },
+        columnBodyRefs: columnBodyRefs.current,
+      }),
+    );
   };
 
   // Trackear posición del pointer durante el drag
   useEffect(() => {
     if (!boardDragging) return;
     const handler = (e: PointerEvent) => {
+      lastPointerX.current = e.clientX;
       lastPointerY.current = e.clientY;
     };
     window.addEventListener("pointermove", handler);
     return () => window.removeEventListener("pointermove", handler);
   }, [boardDragging]);
 
+  const registerColumnBodyRef = useCallback((columnId: string, element: HTMLDivElement | null) => {
+    if (element) {
+      columnBodyRefs.current.set(columnId, element);
+      return;
+    }
+    columnBodyRefs.current.delete(columnId);
+  }, []);
+
   const handleDragEnd = (e: DragEndEvent) => {
-    console.log('>>> handleDragEnd FIRED', { activeId: String(e.active.id), overId: e.over?.id ?? 'NULL' });
     suppressCardOpenRef.current = { id: String(e.active.id), until: Date.now() + 260 };
     activeDragIdRef.current = null;
     const { active, over } = e;
@@ -337,38 +434,35 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
     setDragHeight(0);
 
     const id = String(active.id);
-    if (!over) { console.log('>>> NO OVER'); return; }
-    const overId = String(over.id);
-
-    // Resolver columna destino
-    let targetCol: string | null = null;
-    if (overId.startsWith("col-")) {
-      const colId = overId.slice(4);
-      targetCol = columnIdSet.has(colId) ? colId : null;
-    } else {
-      // over es una tarjeta — resolver su columna
-      targetCol = resolveDropColumnId(overId, itemsRef.current);
-    }
-    if (!targetCol) return;
-
     const snapshot = itemsRef.current;
     const row = snapshot.find((x) => x.id === id);
     if (!row) return;
+    if (!over) return;
+
+    const currentColumnId = getRowColumnId(row);
+    const targetCol = chooseDropColumnId({
+      event: e,
+      items: snapshot,
+      currentColumnId,
+      columnIdSet,
+      resolveDropColumnId,
+    });
+    if (!targetCol) return;
 
     // Determinar overItemId: la tarjeta más cercana al pointer en la columna destino
     const overItemId = findOverItemInColumn(targetCol, lastPointerY.current, id);
-    const sameColumn = getRowColumnId(row) === targetCol;
-    const colItems = byColumn.get(targetCol);
-    console.log('>>> resolve', { targetCol, sameColumn, overItemId, pointerY: lastPointerY.current, colItemCount: colItems?.length, cardRefsCount: cardRefsMap.current.size });
-    if (sameColumn && !overItemId) { console.log('>>> SKIP: sameCol no overItem'); return; }
-    if (sameColumn && overItemId === id) { console.log('>>> SKIP: overItem === active'); return; }
+    const sameColumn = currentColumnId === targetCol;
+    if (sameColumn && !overItemId) return;
+    if (sameColumn && overItemId === id) return;
 
-    console.log('>>> CALLING onMoveCard', { id, targetCol, overItemId });
-    onMoveCard(id, targetCol, overItemId);
+    if (overItemId !== undefined) {
+      onMoveCard(id, targetCol, overItemId);
+      return;
+    }
+    onMoveCard(id, targetCol);
   };
 
   const handleDragCancel = () => {
-    console.log('>>> handleDragCancel FIRED');
     const id = activeDragIdRef.current;
     if (id) suppressCardOpenRef.current = { id, until: Date.now() + 260 };
     activeDragIdRef.current = null;
@@ -445,6 +539,8 @@ export function StatusKanbanBoard<T extends { id: string }>(props: StatusKanbanB
                       count={columnItems.length}
                       boardDragging={boardDragging}
                       droppable={columnDroppable(col.id)}
+                      highlighted={overColId === col.id}
+                      registerBodyRef={registerColumnBodyRef}
                       footer={columnFooter?.(col.id)}
                       showPlaceholder={overColId === col.id && activeDrag != null}
                       placeholderHeight={dragHeight}
