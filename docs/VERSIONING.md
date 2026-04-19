@@ -5,17 +5,19 @@
 La unidad de versionado es cada implementación concreta:
 
 - `ai/console/ts`
+- `admin/insights/ts`
 - `calendar/board/ts`
 - `crud/ui/ts`
 - `crud/paths/go`
 - `kanban/board/ts`
-- `sidebar/ts`
+- `scheduling/go`
 - `ui/data-display/ts`
 - `ui/filters/ts`
 - `ui/forms/ts`
 - `ui/modal/ts`
 - `ui/page-shell/ts`
 - `ui/section-hub/ts`
+- `ui/notification-feed/ts`
 
 ## Regla
 
@@ -24,6 +26,12 @@ Cada implementación tiene su propio archivo `VERSION` en la raíz del runtime:
 ```text
 ai/
   console/
+    ts/
+      VERSION
+      package.json
+
+admin/
+  insights/
     ts/
       VERSION
       package.json
@@ -46,30 +54,42 @@ crud/
       VERSION
       go.mod
 
+scheduling/
+  go/
+    VERSION
+    go.mod
+
 kanban/
   board/
     ts/
       VERSION
       package.json
 
-sidebar/
-  ts/
-    VERSION
-    package.json
-
 ui/
+  data-display/
+    ts/
+      VERSION
+      package.json
+  filters/
+    ts/
+      VERSION
+      package.json
+  forms/
+    ts/
+      VERSION
+      package.json
   modal/
     ts/
       VERSION
       package.json
-
-ui/
+  notification-feed/
+    ts/
+      VERSION
+      package.json
   page-shell/
     ts/
       VERSION
       package.json
-
-ui/
   section-hub/
     ts/
       VERSION
@@ -89,15 +109,17 @@ ui/
 Los tags se cortan por subdirectorio:
 
 - `ai/console/ts/v0.1.0`
+- `admin/insights/ts/v0.1.0`
 - `calendar/board/ts/v0.1.0`
 - `crud/ui/ts/v0.1.0`
 - `crud/paths/go/v0.1.0`
 - `kanban/board/ts/v0.1.0`
-- `sidebar/ts/v0.1.0`
+- `scheduling/go/v0.1.0`
 - `ui/data-display/ts/v0.1.0`
 - `ui/filters/ts/v0.1.0`
 - `ui/forms/ts/v0.1.0`
 - `ui/modal/ts/v0.1.0`
+- `ui/notification-feed/ts/v0.1.0`
 - `ui/page-shell/ts/v0.1.0`
 - `ui/section-hub/ts/v0.1.0`
 

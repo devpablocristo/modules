@@ -3,10 +3,10 @@ module github.com/devpablocristo/modules/scheduling/go
 go 1.26.1
 
 require (
-	github.com/devpablocristo/core/databases/postgres/go v0.0.0
+	github.com/devpablocristo/core/databases/postgres/go v0.1.1
 	github.com/devpablocristo/core/errors/go v0.1.0
-	github.com/devpablocristo/core/http/gin/go v0.0.0
-	github.com/devpablocristo/core/scheduling/go v0.0.0
+	github.com/devpablocristo/core/http/gin/go v0.1.1
+	github.com/devpablocristo/core/scheduling/go v0.1.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	gorm.io/gorm v1.31.1
@@ -62,11 +62,3 @@ require (
 	gorm.io/driver/postgres v1.5.11 // indirect
 	gorm.io/driver/sqlite v1.6.0 // indirect
 )
-
-replace github.com/devpablocristo/core/databases/postgres/go => ../../../core/databases/postgres/go
-
-replace github.com/devpablocristo/core/errors/go => ../../../core/errors/go
-
-replace github.com/devpablocristo/core/http/gin/go => ../../../core/http/gin/go
-
-replace github.com/devpablocristo/core/scheduling/go => ../../../core/scheduling/go

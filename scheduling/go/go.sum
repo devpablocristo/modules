@@ -22,8 +22,16 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/devpablocristo/core/authn/go v0.2.1 h1:UdiRYK85ZO9VmnFTfcAaFSYx6yS9ZZEZYm0kn+4AKLY=
 github.com/devpablocristo/core/authn/go v0.2.1/go.mod h1:L2SDT71ygu2MF5r/ZbleEaFwglPqJdtSR9G57TP2JcQ=
+github.com/devpablocristo/core/databases/postgres/go v0.1.1 h1:bvMaT5i+AFUeKdYDRkmL3p5rEfTwxv8k8M6YD15ByEY=
+github.com/devpablocristo/core/databases/postgres/go v0.1.1/go.mod h1:6lpx7COXzInJodKpqsLonSyzkcUIH3raRV2AEBCy7BQ=
+github.com/devpablocristo/core/errors/go v0.1.0 h1:AGcc9fPrlymjOhrh/rtFx+gqWcRdZJkUff1qivVNjkY=
+github.com/devpablocristo/core/errors/go v0.1.0/go.mod h1:Ju3mqSVdV7FlIf4/FtQt8U8+nd0EC+erBj+Kk9xjx+c=
+github.com/devpablocristo/core/http/gin/go v0.1.1 h1:9KL8IyfVaep0LiYVXmBG3QZq4NNo6gvrU3cbBiYiP1Y=
+github.com/devpablocristo/core/http/gin/go v0.1.1/go.mod h1:DEXd4u2NC4EPp+3oRi7SVfH8i8D/e2AN6d5Gj9WFfR8=
 github.com/devpablocristo/core/http/go v0.1.0 h1:90jYeCjE3JkM3UU6NFww3GaTLRFDUnFJX5yHh5q12gA=
 github.com/devpablocristo/core/http/go v0.1.0/go.mod h1:z4xQjIs6RFYQ0DdKZPi7N/0aWkOJFdBVTSPpf5kHcYA=
+github.com/devpablocristo/core/scheduling/go v0.1.0 h1:WMZFNCzyuPrdSRNQhEJ5JRqcvJRX/NRmZOBikSdc1nM=
+github.com/devpablocristo/core/scheduling/go v0.1.0/go.mod h1:zp4UFTTle6z+7SEt4bh9eZX2eANzSrN/96Jj1OJ2OSM=
 github.com/devpablocristo/core/security/go v0.1.0 h1:cG1y35bN2RFF2NAnCtDho0kTF8zBjYEOx9fKnHzjjmw=
 github.com/devpablocristo/core/security/go v0.1.0/go.mod h1:iwFHt1JZ4bRwnqysUasQBGCnHsMTJowvMJBgbnqrDAE=
 github.com/dhui/dktest v0.4.6 h1:+DPKyScKSEp3VLtbMDHcUq6V5Lm5zfZZVb0Sk7Ahom4=
