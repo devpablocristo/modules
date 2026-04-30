@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { PaginationBar } from "./PaginationBar";
 
 type FilterType = "text" | "number" | "select" | "date";
 
@@ -38,6 +39,7 @@ export type DataTableProps<T> = {
     perPage: number;
     total: number;
     onPageChange: (page: number) => void;
+    serverSide?: boolean;
   };
   message?: string;
   enableFilters?: boolean;
@@ -70,33 +72,6 @@ function CopyIcon() {
 
 function ArchiveIcon() {
   return <span aria-hidden="true">🗄</span>;
-}
-
-function getPaginationRange(totalPages: number, currentPage: number): (number | null)[] {
-  const delta = 1;
-  const range: number[] = [];
-  const out: (number | null)[] = [];
-  let previous: number | undefined;
-
-  for (let page = 1; page <= totalPages; page += 1) {
-    if (page === 1 || page === totalPages || (page >= currentPage - delta && page <= currentPage + delta)) {
-      range.push(page);
-    }
-  }
-
-  for (const page of range) {
-    if (previous !== undefined) {
-      if (page - previous === 2) {
-        out.push(previous + 1);
-      } else if (page - previous > 2) {
-        out.push(null);
-      }
-    }
-    out.push(page);
-    previous = page;
-  }
-
-  return out;
 }
 
 function headerAlignmentClass<T>(column: DataTableColumn<T>): string {
@@ -204,6 +179,7 @@ export function DataTable<T>({
 
   const paginatedData = useMemo(() => {
     if (!pagination) return sortedData;
+    if (pagination.serverSide) return sortedData;
     const start = (pagination.page - 1) * pagination.perPage;
     const end = start + pagination.perPage;
     return sortedData.slice(start, end);
@@ -525,66 +501,12 @@ export function DataTable<T>({
 
       <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white">
         {pagination && sortedData.length > 0 ? (
-          <nav
-            className="flex flex-col items-start justify-between space-y-3 bg-white p-4 md:flex-row md:items-center md:space-y-0"
-            aria-label="Table navigation"
-          >
-            <span className="text-xs font-normal text-slate-500">
-              Mostrar
-              <span className="mx-1 font-semibold text-slate-800">
-                {(pagination.page - 1) * pagination.perPage + 1}-
-                {Math.min(pagination.page * pagination.perPage, pagination.total)}
-              </span>
-              de
-              <span className="ml-1 font-semibold text-slate-800">{pagination.total}</span>
-            </span>
-
-            <ul className="inline-flex items-stretch -space-x-px">
-              <li>
-                <button
-                  type="button"
-                  onClick={() => pagination.onPageChange(pagination.page - 1)}
-                  disabled={pagination.page === 1}
-                  className="ml-0 flex h-full items-center justify-center rounded-l-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-400 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  ‹
-                </button>
-              </li>
-
-              {getPaginationRange(Math.ceil(pagination.total / pagination.perPage), pagination.page).map((page, index) =>
-                page === null ? (
-                  <li key={`ellipsis-${index}`} className="select-none px-2 text-slate-400">
-                    ...
-                  </li>
-                ) : (
-                  <li key={page}>
-                    <button
-                      type="button"
-                      onClick={() => pagination.onPageChange(page)}
-                      className={`border px-3 py-2 text-sm ${
-                        pagination.page === page
-                          ? "border-primary-200 bg-primary-50 font-semibold text-primary-700"
-                          : "bg-white text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  </li>
-                ),
-              )}
-
-              <li>
-                <button
-                  type="button"
-                  onClick={() => pagination.onPageChange(pagination.page + 1)}
-                  disabled={pagination.page === Math.ceil(pagination.total / pagination.perPage)}
-                  className="flex h-full items-center justify-center rounded-r-lg border border-slate-200 bg-white px-3 py-1.5 text-slate-400 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  ›
-                </button>
-              </li>
-            </ul>
-          </nav>
+          <PaginationBar
+            page={pagination.page}
+            perPage={pagination.perPage}
+            total={pagination.total}
+            onPageChange={pagination.onPageChange}
+          />
         ) : null}
       </div>
     </div>

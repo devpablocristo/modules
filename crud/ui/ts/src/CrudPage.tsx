@@ -52,6 +52,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
   const {
     basePath,
     listQuery,
+    paginationCursorParam = "cursor",
     dataSource,
     httpClient: httpClientProp,
     supportsArchived = false,
@@ -161,7 +162,7 @@ export function CrudPage<T extends { id: string }>(props: CrudPageProps<T>): Rea
     const params: string[] = [];
     if (listQuery) params.push(listQuery);
     params.push(`limit=${defaultPageSize}`);
-    if (cursor) params.push(`after=${cursor}`);
+    if (cursor) params.push(`${encodeURIComponent(paginationCursorParam)}=${encodeURIComponent(cursor)}`);
     if (params.length > 0) {
       path = path.includes("?") ? `${path}&${params.join("&")}` : `${path}?${params.join("&")}`;
     }
