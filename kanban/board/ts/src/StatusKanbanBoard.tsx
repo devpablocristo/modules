@@ -233,6 +233,7 @@ function chooseHoverColumnId<T extends { id: string }>(options: {
   const { event, items, columnIdSet, resolveDropColumnId, pointer, columnBodyRefs } = options;
   for (const [columnId, element] of columnBodyRefs.entries()) {
     const rect = element.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) continue;
     if (pointer.x >= rect.left && pointer.x <= rect.right && pointer.y >= rect.top && pointer.y <= rect.bottom) {
       return columnId;
     }
