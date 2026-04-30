@@ -7,12 +7,13 @@ import { DataTable, type DataTableColumn } from './DataTable';
 type Row = {
   name: string;
   age: number;
+  cost?: string;
 };
 
 const rows: Row[] = [
-  { name: 'Grace', age: 41 },
-  { name: 'Ada', age: 30 },
-  { name: 'Linus', age: 21 },
+  { name: 'Grace', age: 41, cost: '100 Kg' },
+  { name: 'Ada', age: 30, cost: '20 Kg' },
+  { name: 'Linus', age: 21, cost: '3 Kg' },
 ];
 
 const columns: DataTableColumn<Row>[] = [
@@ -92,5 +93,61 @@ describe('DataTable', () => {
     expect(visibleNames(3)).toEqual(['Grace', 'Ada', 'Linus']);
     const navigationText = screen.getByLabelText('Table navigation').textContent ?? '';
     expect(navigationText).toMatch(/Mostrar\s*3\s*-\s*4\s*de\s*5/);
+  });
+
+  it('renders custom actions with a custom header', () => {
+    const onOpen = vi.fn();
+
+    render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        actionsHeader="Tools"
+        renderActions={(row) => (
+          <button type="button" onClick={() => onOpen(row.name)}>
+            Open {row.name}
+          </button>
+        )}
+      />,
+    );
+
+    expect(screen.getByText('Tools')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Ada' }));
+    expect(onOpen).toHaveBeenCalledWith('Ada');
+  });
+
+  it('sorts and filters select options with numeric-aware matching', () => {
+    const onFilterChange = vi.fn();
+    const costColumns: DataTableColumn<Row>[] = [
+      {
+        key: 'cost',
+        header: 'Cost',
+        filterType: 'select',
+        filterOptions: ['3 Kg', '100 Kg', '20 Kg', 'Alpha'],
+      },
+    ];
+
+    render(
+      <DataTable
+        data={rows}
+        columns={costColumns}
+        filters={{}}
+        onFilterChange={onFilterChange}
+        enableFilters
+      />,
+    );
+
+    const costHeader = screen.getByText('Cost').closest('th');
+    fireEvent.click(within(costHeader as HTMLElement).getByTitle('Filtrar'));
+
+    const optionLabels = screen
+      .getAllByLabelText(/Kg|Alpha/)
+      .map((input) => input.closest('label')?.textContent?.trim());
+    expect(optionLabels).toEqual(['100 Kg', '20 Kg', '3 Kg', 'Alpha']);
+
+    fireEvent.change(screen.getByPlaceholderText('Buscar opción...'), { target: { value: '2' } });
+    expect(screen.getByLabelText('20 Kg')).toBeTruthy();
+    expect(screen.queryByLabelText('100 Kg')).toBeNull();
+    expect(screen.queryByLabelText('3 Kg')).toBeNull();
   });
 });

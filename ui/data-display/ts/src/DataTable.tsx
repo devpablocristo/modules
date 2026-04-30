@@ -33,6 +33,8 @@ export type DataTableProps<T> = {
   canEdit?: (item: T) => boolean;
   onCopy?: (item: T) => void;
   onDelete?: (item: T) => void;
+  renderActions?: (item: T) => ReactNode;
+  actionsHeader?: string;
   className?: string;
   pagination?: {
     page: number;
@@ -92,6 +94,45 @@ function paddingClass(size?: "xs" | "sm" | "md"): string {
   return "px-4 py-3";
 }
 
+function parseLeadingNumber(value: string): number | null {
+  const match = value.trim().match(/^-?\d+(?:[.,]\d+)?/);
+  if (!match) return null;
+
+  const parsed = Number(match[0].replace(",", "."));
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function isNumericSearch(value: string): boolean {
+  return /^-?\d[\d.,]*$/.test(value.trim());
+}
+
+function compareFilterOptions(a: string, b: string): number {
+  const aNumber = parseLeadingNumber(a);
+  const bNumber = parseLeadingNumber(b);
+
+  if (aNumber !== null && bNumber !== null && aNumber !== bNumber) {
+    return bNumber - aNumber;
+  }
+  if (aNumber !== null && bNumber === null) return -1;
+  if (aNumber === null && bNumber !== null) return 1;
+
+  return a.localeCompare(b, "es", {
+    sensitivity: "base",
+    numeric: true,
+  });
+}
+
+function getVisibleFilterOptions(options: string[], search: string): string[] {
+  const query = search.trim().toLowerCase();
+
+  return [...options].sort(compareFilterOptions).filter((option) => {
+    const normalizedOption = option.trim().toLowerCase();
+    if (!query) return true;
+    if (isNumericSearch(query)) return normalizedOption.startsWith(query);
+    return normalizedOption.includes(query);
+  });
+}
+
 export function DataTable<T>({
   data,
   filters,
@@ -103,13 +144,16 @@ export function DataTable<T>({
   canEdit,
   onCopy,
   onDelete,
+  renderActions,
+  actionsHeader = "Acciones",
   className,
   pagination,
   message = "No hay registros disponibles",
   enableFilters = false,
   rowStyle = "default",
 }: DataTableProps<T>) {
-  const totalColumns = columns.length + (expandableRowRender ? 1 : 0) + (onEdit || onDelete || onCopy ? 1 : 0);
+  const hasActions = Boolean(onEdit || onDelete || onCopy || renderActions);
+  const totalColumns = columns.length + (expandableRowRender ? 1 : 0) + (hasActions ? 1 : 0);
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc" | null>(null);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
@@ -299,13 +343,10 @@ export function DataTable<T>({
                                       }
                                     />
                                     <div className="max-h-48 overflow-auto pr-1 text-slate-600">
-                                      {column.filterOptions
-                                        .filter((option) =>
-                                          option.toLowerCase().includes(
-                                            (filterSearch[String(column.key)] || "").toLowerCase(),
-                                          ),
-                                        )
-                                        .map((option) => {
+                                      {getVisibleFilterOptions(
+                                        column.filterOptions,
+                                        filterSearch[String(column.key)] || "",
+                                      ).map((option) => {
                                           const current = filters?.[String(column.key)];
                                           const selected = Array.isArray(current) ? current.includes(option) : false;
 
@@ -329,10 +370,9 @@ export function DataTable<T>({
                                             </label>
                                           );
                                         })}
-                                      {column.filterOptions.filter((option) =>
-                                        option
-                                          .toLowerCase()
-                                          .includes((filterSearch[String(column.key)] || "").toLowerCase()),
+                                      {getVisibleFilterOptions(
+                                        column.filterOptions,
+                                        filterSearch[String(column.key)] || "",
                                       ).length === 0 ? (
                                         <p className="py-1 text-xs text-slate-400">Sin resultados</p>
                                       ) : null}
@@ -378,7 +418,7 @@ export function DataTable<T>({
                   </th>
                 );
               })}
-              {onEdit || onDelete || onCopy ? <th className="p-4 text-center" /> : null}
+              {hasActions ? <th className="p-4 text-center text-xs font-bold uppercase">{actionsHeader}</th> : null}
             </tr>
           </thead>
 
@@ -432,9 +472,10 @@ export function DataTable<T>({
                         </td>
                       ))}
 
-                      {onEdit || onDelete || onCopy ? (
+                      {hasActions ? (
                         <td className="px-6 py-4 text-center">
                           <div className="flex justify-center space-x-2">
+                            {renderActions?.(item)}
                             {onEdit ? (
                               <button
                                 type="button"
