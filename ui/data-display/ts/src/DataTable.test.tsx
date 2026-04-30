@@ -20,10 +20,10 @@ const columns: DataTableColumn<Row>[] = [
   { key: 'age', header: 'Age' },
 ];
 
-function visibleNames() {
+function visibleNames(limit = 2) {
   return screen
     .getAllByRole('row')
-    .slice(1, 3)
+    .slice(1, 1 + limit)
     .map((row) => within(row).getAllByRole('cell')[0]?.textContent);
 }
 
@@ -72,5 +72,25 @@ describe('DataTable', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }));
     expect(onFilterChange).toHaveBeenLastCalledWith({});
+  });
+
+  it('does not slice already-paginated server-side rows', () => {
+    render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        pagination={{
+          page: 2,
+          perPage: 2,
+          total: 5,
+          serverSide: true,
+          onPageChange: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(visibleNames(3)).toEqual(['Grace', 'Ada', 'Linus']);
+    const navigationText = screen.getByLabelText('Table navigation').textContent ?? '';
+    expect(navigationText).toMatch(/Mostrar\s*3\s*-\s*4\s*de\s*5/);
   });
 });

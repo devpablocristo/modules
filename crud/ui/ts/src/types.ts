@@ -120,6 +120,8 @@ export type CrudPageConfig<T extends { id: string }> = {
   basePath?: string;
   /** Query sin `?`; se concatena al GET de listado. */
   listQuery?: string;
+  /** Nombre del parámetro de cursor. Por defecto `cursor`; usar `after` solo para backends legacy. */
+  paginationCursorParam?: "cursor" | "after" | (string & {});
   dataSource?: CrudDataSource<T>;
   /** Obligatorio si hay `basePath` y no hay `dataSource.list`. */
   httpClient?: CrudHttpClient;
