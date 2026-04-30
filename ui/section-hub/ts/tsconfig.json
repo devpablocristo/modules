@@ -10,10 +10,7 @@
     "moduleDetection": "force",
     "noEmit": true,
     "strict": true,
-    "skipLibCheck": true,
-    "paths": {
-      "@devpablocristo/modules-ui-page-shell": ["../../../page-shell/ts/src/index.ts"]
-    }
+    "skipLibCheck": true
   },
   "include": ["src"]
 }

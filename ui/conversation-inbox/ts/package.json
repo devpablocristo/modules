@@ -12,7 +12,7 @@
     "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
-    "@devpablocristo/modules-ui-notification-feed": "^0.2.0"
+    "@devpablocristo/modules-ui-notification-feed": "file:../../notification-feed/ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

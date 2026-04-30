@@ -3,7 +3,7 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import type { ReactNode, Ref } from "react";
+import type { ReactNode, RefObject } from "react";
 
 export type CalendarView = "dayGridMonth" | "timeGridWeek" | "timeGridDay";
 
@@ -31,7 +31,7 @@ type EmbeddedCalendarOptions = Omit<
 >;
 
 export type CalendarSurfaceProps = {
-  calendarRef: Ref<FullCalendar>;
+  calendarRef: RefObject<FullCalendar | null>;
   view: CalendarView;
   title?: string;
   loaded: boolean;

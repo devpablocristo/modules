@@ -5,7 +5,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
 import luxonPlugin from "@fullcalendar/luxon";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import type { PointerEvent, ReactNode, Ref } from "react";
+import type { PointerEvent, ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import { clearTimeGridCrosshair, updateTimeGridCrosshair } from "./timeGridCrosshair";
 
@@ -60,7 +60,7 @@ type EmbeddedCalendarOptions = Omit<
 >;
 
 export type CalendarSurfaceProps = {
-  calendarRef: Ref<FullCalendar>;
+  calendarRef: RefObject<FullCalendar | null>;
   view: CalendarView;
   title?: string;
   loaded: boolean;

@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@devpablocristo/core-browser": "^0.4.0",
-    "@devpablocristo/modules-shell-sidebar": "^0.3.0"
+    "@devpablocristo/modules-shell-sidebar": "file:../../../sidebar/ts"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
