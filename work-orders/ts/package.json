@@ -18,8 +18,8 @@
     "test": "vitest run --globals --passWithNoTests tests src"
   },
   "devDependencies": {
-    "@types/react": "^18.3.0",
-    "react": "^18.3.1",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.5",
     "typescript": "^5.8.0",
     "vitest": "^3.2.4"
   },
