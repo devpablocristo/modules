@@ -187,7 +187,14 @@ describe("StatusKanbanBoard", () => {
 
     await act(async () => {
       props.onDragStart({ active: { id: "1" } });
-      props.onDragOver({ over: { id: "1" }, collisions: [{ id: "2" }] });
+    });
+
+    const draggingProps = dndState.lastProps as {
+      onDragOver: (event: { over: { id: string }; collisions?: Array<{ id: string }> }) => void;
+    };
+
+    await act(async () => {
+      draggingProps.onDragOver({ over: { id: "1" }, collisions: [{ id: "2" }] });
     });
 
     expect(screen.getByText("Done").closest(".m-kanban__column-body")?.className).toContain("m-kanban__column-body--over");
