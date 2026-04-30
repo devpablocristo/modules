@@ -15,17 +15,11 @@ if [[ "${#modules[@]}" -eq 0 ]]; then
   exit 0
 fi
 
+npm ci --no-audit --no-fund
+
 for module in "${modules[@]}"; do
   rel="${module#${ROOT_DIR}/}"
   echo "==> testing ${rel}"
-  (
-    cd "${module}" && \
-    if [[ -f package-lock.json ]]; then
-      npm ci --no-audit --no-fund
-    else
-      npm install --no-audit --no-fund
-    fi && \
-    npm run typecheck && \
-    npm test
-  )
+  npm run --workspace "./${rel}" typecheck
+  npm test --workspace "./${rel}"
 done
